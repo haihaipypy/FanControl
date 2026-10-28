@@ -30,4 +30,13 @@ for b in "$APP_DIR/bin/fanctrl" /root/fanctrl; do
   fi
 done
 
+# 清除定时开关机写入的 RTC 唤醒闹钟
+# 只在「确实是我们写过的」情况下才清 —— power_state.json 里有 rtc 记录才算，
+# 否则会误删用户在 BIOS 里设的固定闹钟。
+if grep -q '"rtc"' "$PKG_VAR/power_state.json" 2>/dev/null; then
+  for w in /sys/class/rtc/rtc*/wakealarm; do
+    [ -w "$w" ] && echo 0 > "$w" 2>/dev/null
+  done
+fi
+
 exit 0

@@ -16,6 +16,9 @@ API:
   POST /api/log/clear        清空日志
   POST /api/autostart        开机自启开关 {"enabled": true}
   GET  /api/autostart        查询自启状态
+  GET  /api/power            定时开关机：计划、下次执行、RTC 闹钟状态
+  POST /api/power            保存定时计划
+  POST /api/power/sync       立即把下一次开机写进主板 RTC
 """
 
 import hashlib
@@ -203,6 +206,13 @@ def fand_running():
         return r.returncode == 0
     except Exception:
         return False
+
+
+def power_mod():
+    """延迟导入定时开关机模块（与 fand.py 共用同一份实现）"""
+    sys.path.insert(0, APPDIR)
+    import powersched
+    return powersched
 
 
 def service_enabled():
@@ -397,6 +407,11 @@ class Handler(BaseHTTPRequestHandler):
                     "enabled": service_enabled(),
                     "daemon_running": fand_running(),
                 })
+            if p == "/api/power":
+                try:
+                    return self._send_json(200, power_mod().status())
+                except Exception as e:
+                    return self._send_json(500, {"ok": False, "error": str(e)})
             return self._send_json(404, {"ok": False, "error": "未知接口"})
 
         return self._serve_static(p)
@@ -488,6 +503,34 @@ class Handler(BaseHTTPRequestHandler):
                 log("开机自启已%s" % ("开启" if enabled else "关闭"))
                 return self._send_json(200, {"ok": True, "enabled": enabled})
             return self._send_json(500, {"ok": False, "error": err})
+
+        if p == "/api/power":
+            body = self._read_body()
+            plan = body.get("plan")
+            if not isinstance(plan, dict):
+                return self._send_json(400, {"ok": False, "error": "计划格式错误"})
+            try:
+                pm = power_mod()
+                saved = pm.save_plan(plan)
+                result = pm.sync_rtc(saved, force=True)
+                out = pm.status(saved)
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e)})
+            log("定时开关机计划已更新（%d 条）" % len(saved.get("items") or []))
+            out["rtc_sync"] = result
+            return self._send_json(200, out)
+
+        if p == "/api/power/sync":
+            try:
+                pm = power_mod()
+                result = pm.sync_rtc(force=True)
+                out = pm.status()
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e)})
+            log("手动同步 RTC 闹钟: %s"
+                % (result.get("error") or result.get("action") or "无变化"))
+            out["rtc_sync"] = result
+            return self._send_json(200, out)
 
         if p == "/api/password":
             body = self._read_body()

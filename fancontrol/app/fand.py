@@ -22,6 +22,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -647,6 +648,55 @@ def tick(cfg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# 定时开关机调度线程
+#
+# 为什么不单独起一个进程？
+#   本进程（fand.py）已经是 root 常驻，且被 systemd 自启服务拉起。
+#   把调度放在这里的后台线程，无人值守开机后调度器一定在跑；
+#   单独进程还要多一套 pidfile / 启停 / 互斥，收益为零。
+#
+# 为什么固定 15 秒而不是跟着 check_interval 走？
+#   用户可以把检测间隔调到 300 秒，那样会整分钟整分钟地漏掉计划。
+#   两个循环的节拍必须解耦。
+# ---------------------------------------------------------------------------
+def _power_loop():
+    try:
+        import powersched
+    except Exception as e:
+        log("定时开关机模块加载失败: %s" % e)
+        return
+
+    log("定时开关机调度已启动（%s）" % powersched.describe())
+    last_logged_day = None
+    while True:
+        try:
+            powersched.tick()
+            # RTC 对齐每 5 分钟做一次即可，没必要每一轮都读 sysfs
+            if time.time() - _power_loop.last_sync >= 300:
+                powersched.sync_rtc()
+                _power_loop.last_sync = time.time()
+                # 每天打一次闹钟状态，方便排查「为什么没自动开机」
+                today = datetime.now().strftime("%Y-%m-%d")
+                if today != last_logged_day:
+                    r = powersched.rtc_info()
+                    if r["alarm"]:
+                        log("RTC 闹钟当前指向 %s（%s）"
+                            % (datetime.fromtimestamp(r["alarm"]).strftime("%m-%d %H:%M"),
+                               r["offset_text"]))
+                    elif r["supported"]:
+                        log("RTC 闹钟未设置（没有开机计划，或计划已到期）")
+                    else:
+                        log("RTC 唤醒不可用: %s" % r["error"])
+                    last_logged_day = today
+        except Exception as e:
+            log("定时开关机调度异常: %s" % e)
+        time.sleep(15)
+
+
+_power_loop.last_sync = 0.0
+
+
+# ---------------------------------------------------------------------------
 # 主循环
 # ---------------------------------------------------------------------------
 def acquire_lock():
@@ -693,6 +743,9 @@ def main():
     log("平滑策略: 迟滞 %s℃ | 单次最多 %s 档 | 紧急直通 CPU≥%s℃ / HDD≥%s℃"
         % (cfg.get("hysteresis"), cfg.get("slew_step"),
            cfg.get("emergency_cpu"), cfg.get("emergency_hdd")))
+
+    # 定时开关机调度（后台线程，跟着本进程一起起落）
+    threading.Thread(target=_power_loop, name="power-sched", daemon=True).start()
 
     st = read_state()
     if st.get("current_speed") is None:

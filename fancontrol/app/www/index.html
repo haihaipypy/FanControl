@@ -88,6 +88,20 @@
   .tier-tag{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;
     border-radius:6px;background:#eef4fb;color:var(--accent);font-size:11px;font-weight:600}
 
+  /* 定时开关机 */
+  .daychips{display:flex;gap:4px;flex-wrap:wrap}
+  .daychip{width:23px;height:23px;line-height:21px;text-align:center;border:1px solid var(--line2);
+    border-radius:6px;font-size:11px;color:var(--tx3);cursor:pointer;user-select:none;background:#fff;transition:.12s}
+  .daychip:hover{border-color:#bcd6f2}
+  .daychip.on{background:#eef4fb;border-color:#bcd6f2;color:var(--accent);font-weight:600}
+  td select,td input[type=time]{
+    font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line2);
+    border-radius:6px;background:#fff;color:var(--tx)
+  }
+  td select:focus,td input[type=time]:focus{outline:none;border-color:var(--accent)}
+  td input.wide{width:100%;min-width:90px}
+  .empty-row td{color:var(--tx3);font-size:12px;text-align:center;padding:26px 0}
+
   /* 日志 */
   .log{
     background:#1e2530;color:#c8d3e0;border-radius:10px;padding:14px 16px;
@@ -290,6 +304,72 @@
     </div>
   </div>
 
+  <!-- 定时开关机 -->
+  <div class="card" style="margin-top:16px">
+    <h2>定时开关机 <span class="hint" id="powerHint">—</span></h2>
+
+    <div class="metrics" style="margin-bottom:16px">
+      <div class="metric">
+        <div class="lab">下次开机</div>
+        <div class="val" id="pNextOn" style="font-size:17px">—</div>
+        <div class="note" id="pNextOnNote">由「开机」计划决定</div>
+      </div>
+      <div class="metric">
+        <div class="lab">下次关机</div>
+        <div class="val" id="pNextOff" style="font-size:17px">—</div>
+        <div class="note" id="pNextOffNote">关机 / 重启</div>
+      </div>
+      <div class="metric">
+        <div class="lab">主板 RTC 闹钟</div>
+        <div class="val" id="pRtc" style="font-size:17px">—</div>
+        <div class="note" id="pRtcNote">实际生效的唤醒时间</div>
+      </div>
+      <div class="metric">
+        <div class="lab">调度器</div>
+        <div class="val" id="pSched" style="font-size:17px">—</div>
+        <div class="note" id="pSchedNote">后台线程</div>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th style="width:78px">操作</th>
+          <th style="width:104px">时间</th>
+          <th>星期</th>
+          <th style="width:150px">备注</th>
+          <th style="width:56px">启用</th>
+          <th style="width:46px"></th>
+        </tr>
+      </thead>
+      <tbody id="powerBody"></tbody>
+    </table>
+
+    <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
+      <button class="sm" id="addPlan">+ 新增计划</button>
+      <button class="sm" id="syncRtc">同步 RTC 闹钟</button>
+      <button class="sm primary" id="savePlan" style="margin-left:auto">保存计划</button>
+    </div>
+
+    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:6px">
+      <div class="switch-row">
+        <div class="info">
+          <span class="t">定时开关机总开关</span>
+          <span class="d">关闭后不执行任何计划，并清除本应用写入的 RTC 唤醒闹钟</span>
+        </div>
+        <label class="sw"><input type="checkbox" id="swPower"><span class="track"></span></label>
+      </div>
+    </div>
+
+    <p style="font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.8">
+      <b>定时开机靠主板 RTC 唤醒</b>：必须在 BIOS/UEFI 里打开「RTC 唤醒 / Resume by RTC Alarm」，
+      否则关机后不会被叫醒。关机、重启前会自动把下一次开机时间写进 RTC，平时每轮巡检也会自动对齐，改计划不用手动同步。<br>
+      星期不勾选 = <b>每天</b>。开机计划在机器已运行时只是一个标记，不会做任何操作。<br>
+      <b>「开机自启」必须打开</b>：否则无人值守开机后调度器不运行，定时关机不会执行。
+      关机时间若正好与某次开机相同，以关机为准。
+    </p>
+  </div>
+
   <!-- 日志 -->
   <div class="card" style="margin-top:16px">
     <h2>运行日志
@@ -316,7 +396,8 @@
   "use strict";
   var TOKEN_KEY = "fancontrol_token";
   var token = localStorage.getItem(TOKEN_KEY) || "";
-  var state = { config: null, statusTimer: null, logTimer: null, dirty: false };
+  var state = { config: null, statusTimer: null, logTimer: null, powerTimer: null,
+                dirty: false, planDirty: false };
 
   var $ = function(id){ return document.getElementById(id); };
 
@@ -380,6 +461,7 @@
     localStorage.removeItem(TOKEN_KEY);
     if(state.statusTimer) clearInterval(state.statusTimer);
     if(state.logTimer) clearInterval(state.logTimer);
+    if(state.powerTimer) clearInterval(state.powerTimer);
     showLogin();
   };
 
@@ -605,6 +687,194 @@
     }).then(function(){ self.disabled = false; });
   };
 
+  /* ---------------- 定时开关机 ---------------- */
+  var ACTION_OPTS = [["on", "开机"], ["off", "关机"], ["reboot", "重启"]];
+  var DAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"];
+
+  function pad2(n){ return ("0" + n).slice(-2); }
+
+  function fmtTs(ts){
+    if(!ts) return "—";
+    var d = new Date(ts * 1000);
+    return (d.getMonth() + 1) + "-" + d.getDate() +
+      " 周" + DAY_NAMES[(d.getDay() + 6) % 7] + " " +
+      pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+  }
+
+  function renderPlan(items){
+    var body = $("powerBody");
+    body.innerHTML = "";
+    if(!items || !items.length){
+      var tr0 = document.createElement("tr");
+      tr0.className = "empty-row";
+      tr0.innerHTML = '<td colspan="6">还没有计划。点「+ 新增计划」，例如「每天 23:30 关机」' +
+                      '或「工作日 07:30 开机」。</td>';
+      body.appendChild(tr0);
+      return;
+    }
+    items.forEach(function(it){
+      var tr = document.createElement("tr");
+      if(it.id) tr.setAttribute("data-id", it.id);
+      var sel = '<select data-k="action">' + ACTION_OPTS.map(function(o){
+        return '<option value="' + o[0] + '"' + (it.action === o[0] ? " selected" : "") +
+               ">" + o[1] + "</option>";
+      }).join("") + "</select>";
+      var chips = DAY_NAMES.map(function(n, i){
+        var on = (it.days || []).indexOf(i) >= 0;
+        return '<span class="daychip' + (on ? " on" : "") + '" data-d="' + i + '">' + n + "</span>";
+      }).join("");
+      tr.innerHTML =
+        "<td>" + sel + "</td>" +
+        '<td><input type="time" data-k="time" value="' + (it.time || "07:00") + '"></td>' +
+        '<td><div class="daychips">' + chips + "</div></td>" +
+        '<td><input type="text" class="wide" data-k="note" maxlength="40" placeholder="可选" value="' +
+          String(it.note || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") +
+        '"></td>' +
+        '<td><input type="checkbox" data-k="enabled"' + (it.enabled ? " checked" : "") +
+          ' style="width:16px;height:16px"></td>' +
+        '<td><button class="sm danger" data-del="1">删除</button></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function collectPlan(){
+    var rows = $("powerBody").querySelectorAll("tr");
+    var out = [];
+    Array.prototype.forEach.call(rows, function(tr){
+      if(tr.className === "empty-row") return;
+      var o = { days: [], enabled: true, note: "" };
+      if(tr.getAttribute("data-id")) o.id = tr.getAttribute("data-id");
+      var sel = tr.querySelector("select[data-k=action]");
+      o.action = sel ? sel.value : "off";
+      var t = tr.querySelector("input[data-k=time]");
+      o.time = (t && t.value) ? t.value : "00:00";
+      Array.prototype.forEach.call(tr.querySelectorAll(".daychip.on"), function(c){
+        o.days.push(parseInt(c.getAttribute("data-d"), 10));
+      });
+      var n = tr.querySelector("input[data-k=note]");
+      o.note = n ? n.value : "";
+      var e = tr.querySelector("input[data-k=enabled]");
+      o.enabled = e ? e.checked : true;
+      out.push(o);
+    });
+    return out;
+  }
+
+  function renderPower(d){
+    var p = d.plan || {};
+    $("swPower").checked = !!p.enabled;
+
+    var focused = $("powerBody").contains(document.activeElement);
+    if(!state.planDirty && !focused) renderPlan(p.items || []);
+
+    $("pNextOn").textContent = fmtTs(d.next_on);
+    $("pNextOn").className = "val " + (d.next_on ? "c-blue" : "c-tx3");
+    $("pNextOnNote").textContent = p.enabled
+      ? (d.next_on ? "到点由 RTC 唤醒" : "没有启用的开机计划")
+      : "总开关已关闭";
+
+    $("pNextOff").textContent = fmtTs(d.next_off);
+    $("pNextOff").className = "val " + (d.next_off ? "c-amber" : "c-tx3");
+    $("pNextOffNote").textContent = p.enabled
+      ? (d.next_off ? "关机 / 重启" : "没有启用的关机计划")
+      : "总开关已关闭";
+
+    var rtc = d.rtc || {};
+    if(!rtc.supported){
+      $("pRtc").textContent = "不可用";
+      $("pRtc").className = "val c-red";
+      $("pRtcNote").textContent = rtc.error || "系统未暴露 RTC 唤醒接口";
+    } else if(rtc.alarm){
+      $("pRtc").textContent = fmtTs(rtc.alarm);
+      $("pRtc").className = "val c-blue";
+      $("pRtcNote").textContent = rtc.offset ? rtc.offset_text : "主板时钟与系统一致";
+    } else {
+      $("pRtc").textContent = "未设置";
+      $("pRtc").className = "val c-tx3";
+      $("pRtcNote").textContent = "没有开机计划，或计划已全部停用";
+    }
+
+    var sc = d.scheduler || {};
+    $("pSched").textContent = sc.alive ? "运行中" : "未运行";
+    $("pSched").className = "val " + (sc.alive ? "c-green" : "c-red");
+    $("pSchedNote").textContent = sc.alive
+      ? ("每 " + (sc.tick_seconds || 15) + " 秒巡检")
+      : "守护进程未运行，计划不会执行";
+
+    var ev = (d.events || [])[0];
+    $("powerHint").textContent = ev
+      ? ("最近：" + fmtTs(ev.ts) + " " + (ev.label || "") + (ev.text ? "（" + ev.text + "）" : ""))
+      : "暂无执行记录";
+  }
+
+  function loadPower(){
+    return api("/api/power").then(renderPower).catch(function(){});
+  }
+
+  $("powerBody").addEventListener("input", function(){ state.planDirty = true; });
+  $("powerBody").addEventListener("change", function(){ state.planDirty = true; });
+
+  $("powerBody").addEventListener("click", function(ev){
+    var el = ev.target;
+    if(el.classList && el.classList.contains("daychip")){
+      el.classList.toggle("on");
+      state.planDirty = true;
+      return;
+    }
+    if(el.getAttribute && el.getAttribute("data-del")){
+      var tr = el.parentNode.parentNode;
+      tr.parentNode.removeChild(tr);
+      state.planDirty = true;
+      if(!$("powerBody").querySelectorAll("tr:not(.empty-row)").length) renderPlan([]);
+    }
+  });
+
+  $("addPlan").onclick = function(){
+    var items = collectPlan();
+    items.push({ action: "off", time: "23:30", days: [], enabled: true, note: "" });
+    renderPlan(items);
+    state.planDirty = true;
+  };
+
+  function savePlan(){
+    var plan = { enabled: $("swPower").checked, items: collectPlan() };
+    return api("/api/power", { method:"POST", body:{ plan: plan } }).then(function(d){
+      state.planDirty = false;
+      renderPower(d);
+      var rs = d.rtc_sync || {};
+      if(rs.error) toast("计划已保存，但 RTC 写入失败：" + rs.error, "err");
+      else if(rs.action === "written") toast("计划已保存，RTC 闹钟已同步", "ok");
+      else toast("计划已保存", "ok");
+    });
+  }
+
+  $("savePlan").onclick = function(){
+    savePlan().catch(function(e){ toast(e.message, "err"); });
+  };
+
+  $("swPower").onchange = function(){
+    var self = this;
+    self.disabled = true;
+    savePlan().then(function(){
+      toast(self.checked ? "定时开关机已开启" : "定时开关机已关闭", "ok");
+    }).catch(function(e){
+      toast(e.message, "err");
+      self.checked = !self.checked;
+    }).then(function(){ self.disabled = false; });
+  };
+
+  $("syncRtc").onclick = function(){
+    api("/api/power/sync", { method:"POST" }).then(function(d){
+      renderPower(d);
+      var rs = d.rtc_sync || {};
+      if(rs.error) toast("同步失败：" + rs.error, "err");
+      else if(rs.action === "cleared") toast("RTC 闹钟已清除", "ok");
+      else if(rs.action === "written") toast("RTC 闹钟已写入：" + fmtTs(rs.target), "ok");
+      else if(!d.rtc || !d.rtc.supported) toast("本机没有可用的 RTC 唤醒接口", "err");
+      else toast("RTC 闹钟已是最新，无需重写", "ok");
+    }).catch(function(e){ toast(e.message, "err"); });
+  };
+
   /* ---------------- 日志 ---------------- */
   function loadLog(){
     return api("/api/log?lines=300").then(function(j){
@@ -628,7 +898,7 @@
   };
 
   $("refreshBtn").onclick = function(){
-    loadStatus(); loadConfig(); loadAutostart(); loadLog();
+    loadStatus(); loadConfig(); loadAutostart(); loadPower(); loadLog();
     toast("已刷新");
   };
 
@@ -637,11 +907,14 @@
     loadStatus();
     loadConfig();
     loadAutostart();
+    loadPower();
     loadLog();
     if(state.statusTimer) clearInterval(state.statusTimer);
     state.statusTimer = setInterval(loadStatus, 3000);
     if(state.logTimer) clearInterval(state.logTimer);
     if($("autoLog").checked) state.logTimer = setInterval(loadLog, 5000);
+    if(state.powerTimer) clearInterval(state.powerTimer);
+    state.powerTimer = setInterval(loadPower, 60000);
   }
 
   paintRange($("speedRange"));

@@ -12,6 +12,7 @@ mkdir -p "$PKG_ETC" "$PKG_VAR"
 chmod +x "$APP_DIR/bin/fanctrl" 2>/dev/null
 chmod +x "$APP_DIR/fand.py" 2>/dev/null
 chmod +x "$APP_DIR/server.py" 2>/dev/null
+chmod +x "$APP_DIR/powersched.py" 2>/dev/null
 chmod +x "$APP_DIR"/cmd/* 2>/dev/null
 
 # 校验 fanctrl
