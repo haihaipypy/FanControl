@@ -1,0 +1,23 @@
+# 构建产物
+*.fpk
+dist/
+dist-fpk/
+_chk/
+
+# 打包工具（Windows 版二进制太大，自行下载 fnpack）
+fnpack
+fnpack.exe
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 临时校验脚本
+_v*.py
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

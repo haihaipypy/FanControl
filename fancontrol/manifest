@@ -1,0 +1,17 @@
+appname               = FanControl
+version               = 1.3.0
+display_name          = 风扇温控
+desc                  = 飞牛 NAS 可视化风扇温控面板：实时监控 CPU / 硬盘温度、手动调速、分档温控曲线、日志查看与开机自启。
+platform              = x86
+source                = thirdparty
+maintainer            = 无辣
+maintainer_url        = https://blog.1day.vip
+distributor           = 无辣
+os_min_version        = 0.9.0
+desktop_uidir         = ui
+desktop_applaunchname = FanControl.Main
+ctl_stop              = true
+checkport             = true
+service_port          = 7300
+changelog             = v1.3.0：新增温控「平滑策略」三项 —— 迟滞（默认 3℃）、单次最多变化档数（默认 1 档，转速逐级升降）、紧急直通（CPU≥85℃ 或硬盘≥68℃ 时直接满速）。迟滞彻底消除「温度骑在分界线上每 30 秒翻一次档」的抖动；渐变杜绝瞬时尖峰把风扇一把拉到 100%。默认曲线按 N150（Tjmax 105℃）+ NAS 机械盘重新标定：CPU 45/60/68/78℃ → 25/35/50/70%，硬盘 45/55/60/66℃ → 25/35/50/70%，空闲 35% 保持静音。页面「基础设置」新增迟滞与渐变两项可调参数，启动日志打印平滑策略。<br>v1.2.0：重构温度传感器选择逻辑。CPU 温度改为优先读 hwmon 的 coretemp / k10temp 并按 tempN_label 匹配（Package id 0 / Tctl），不再按序号盲选；明确排除 acpitz（ACPI 热区常年返回恒定假值，是"温度不变"的根因）。硬盘温度改为优先读 hwmon 的 drivetemp（不唤醒休眠盘），smartctl 降为兜底且解析改为精确匹配 ATA 属性 194 / NVMe Temperature 行。页面实时显示温度取值来源，便于排查。启动日志打印传感器探测结果。<br>v1.1.2：修正温控曲线档位语义，阈值改为「该档温度上界」（0~45→25%、46~54→35%、55~60→50%、61~69→70%、≥70→100%）；修复运行日志每条重复两遍。<br>v1.1.1：重排默认温控曲线。<br>v1.1.0：修复桌面页面无法打开（HEAD 501）；修复入口标题占位符；守护进程加单例锁；服务升级 HTTP/1.1。
+checksum              = 112fead3c9ebd20b1f29d14c243161dc

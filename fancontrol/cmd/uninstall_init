@@ -1,0 +1,33 @@
+#!/bin/bash
+# 卸载前：停进程、停自启服务、恢复风扇到安全转速
+set -u
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+
+# 停进程
+for pf in "$PKG_VAR/fand.pid" "$PKG_VAR/web.pid"; do
+  if [ -f "$pf" ]; then
+    pid="$(cat "$pf" 2>/dev/null)"
+    [ -n "$pid" ] && kill "$pid" 2>/dev/null
+    rm -f "$pf"
+  fi
+done
+pkill -f "$APP_DIR/server.py" 2>/dev/null
+pkill -f "$APP_DIR/fand.py" 2>/dev/null
+
+# 关闭并移除 systemd 自启服务
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl disable --now fan-control.service 2>/dev/null
+fi
+rm -f /etc/systemd/system/fan-control.service
+
+# 卸载前把风扇恢复到一个温和转速，避免停留在异常值
+for b in "$APP_DIR/bin/fanctrl" /root/fanctrl; do
+  if [ -x "$b" ]; then
+    "$b" 35 >/dev/null 2>&1
+    break
+  fi
+done
+
+exit 0

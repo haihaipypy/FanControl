@@ -1,0 +1,14 @@
+#!/bin/bash
+# 配置变更后（飞牛应用设置里改了向导值）
+set -u
+
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+
+# 若用户在应用设置里改了端口，重启 Web 服务使其生效
+if [ -n "${wizard_port:-}" ] && [ -f "$PKG_VAR/web.pid" ]; then
+  pid="$(cat "$PKG_VAR/web.pid" 2>/dev/null)"
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null
+  rm -f "$PKG_VAR/web.pid"
+fi
+
+exit 0

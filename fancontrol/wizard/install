@@ -1,0 +1,32 @@
+[
+  {
+    "stepTitle": "风扇温控设置",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "本应用接管风扇温控。安装后会自动停止旧的 fan_control.sh 服务（fan-control.service）以避免冲突。"
+      },
+      {
+        "type": "password",
+        "field": "wizard_password",
+        "label": "页面访问密码",
+        "initValue": "fancontrol",
+        "rules": [
+          {
+            "required": true,
+            "message": "请设置访问密码"
+          },
+          {
+            "min": 4,
+            "message": "密码至少 4 位"
+          }
+        ]
+      },
+      {
+        "type": "switch",
+        "field": "wizard_cleanup_old",
+        "label": "停用旧的 fan_control.sh 自启服务"
+      }
+    ]
+  }
+]

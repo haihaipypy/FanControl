@@ -1,0 +1,16 @@
+[
+  {
+    "stepTitle": "卸载确认",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "卸载后风扇将由 BIOS 默认策略控制（通常 40%）。如需继续温控，可重新安装本应用，或手动恢复 fan_control.sh 脚本。"
+      },
+      {
+        "type": "switch",
+        "field": "wizard_keep_data",
+        "label": "保留配置与日志"
+      }
+    ]
+  }
+]

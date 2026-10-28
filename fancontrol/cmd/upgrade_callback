@@ -1,0 +1,11 @@
+#!/bin/bash
+# 升级后：修复权限，保证服务能正常拉起
+set -u
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+
+chmod +x "$APP_DIR/bin/fanctrl" 2>/dev/null
+chmod +x "$APP_DIR/fand.py" 2>/dev/null
+chmod +x "$APP_DIR/server.py" 2>/dev/null
+
+exit 0

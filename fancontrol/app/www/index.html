@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>风扇温控</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#ffffff; --line:#e3e7ec; --line2:#d3d9e0;
+    --tx:#1d2733; --tx2:#5f6b7a; --tx3:#95a1b1;
+    --green:#1d9e75; --blue:#378add; --amber:#ba7517; --red:#e24b4a;
+    --accent:#378add;
+    --r:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--tx); font-size:14px; line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+
+  /* 顶栏 */
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--green);flex:none}
+  .brand .dot.off{background:var(--red)}
+  .brand h1{font-size:19px;font-weight:600;letter-spacing:.2px}
+  .brand .sub{font-size:12px;color:var(--tx3);margin-top:1px}
+  .top-actions{display:flex;gap:8px;align-items:center}
+
+  /* 按钮 */
+  button{
+    font-family:inherit;font-size:13px;cursor:pointer;
+    background:var(--card);border:1px solid var(--line2);color:var(--tx);
+    padding:7px 14px;border-radius:8px;transition:.15s;
+  }
+  button:hover{background:#f0f3f6}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{background:#2d78c4}
+  button.danger{color:var(--red);border-color:#f0c4c4}
+  button.danger:hover{background:#fdf2f2}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.sm{padding:5px 10px;font-size:12px}
+
+  /* 卡片 */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:16px}
+  .card h2{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .hint{font-size:12px;font-weight:400;color:var(--tx3);margin-left:auto}
+
+  /* 指标格 */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .metric{background:#f7f9fb;border-radius:10px;padding:14px 16px}
+  .metric .lab{font-size:12px;color:var(--tx2);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .metric .val{font-size:26px;font-weight:600;line-height:1.1}
+  .metric .val small{font-size:13px;font-weight:400;color:var(--tx3);margin-left:2px}
+  .metric .note{font-size:11px;color:var(--tx3);margin-top:4px}
+  .c-green{color:var(--green)} .c-blue{color:var(--blue)}
+  .c-amber{color:var(--amber)} .c-red{color:var(--red)} .c-tx3{color:var(--tx3)}
+
+  /* 转速控制 */
+  .speed-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .speed-val{font-size:32px;font-weight:600;min-width:110px;font-variant-numeric:tabular-nums}
+  .speed-val small{font-size:15px;color:var(--tx3);font-weight:400}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;flex:1;min-width:200px;height:6px;
+    border-radius:3px;background:linear-gradient(to right,var(--accent) 0%,var(--accent) var(--pct,35%),#e3e7ec var(--pct,35%),#e3e7ec 100%);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15)
+  }
+  .quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .quick button{padding:5px 11px;font-size:12px}
+
+  /* 表格 */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  th{font-size:12px;color:var(--tx2);font-weight:500;background:#f9fafc}
+  th:first-child{border-radius:8px 0 0 0} th:last-child{border-radius:0 8px 0 0}
+  tr:last-child td{border-bottom:none}
+  td input{
+    width:72px;font-family:inherit;font-size:13px;padding:5px 8px;
+    border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--tx)
+  }
+  td input:focus{outline:none;border-color:var(--accent)}
+  .tier-tag{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;
+    border-radius:6px;background:#eef4fb;color:var(--accent);font-size:11px;font-weight:600}
+
+  /* 日志 */
+  .log{
+    background:#1e2530;color:#c8d3e0;border-radius:10px;padding:14px 16px;
+    font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12px;line-height:1.7;
+    max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all;
+  }
+  .log:empty::before{content:"暂无日志";color:#66748a}
+
+  /* 开关 */
+  .switch-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
+  .switch-row:last-child{border-bottom:none;padding-bottom:0}
+  .switch-row .info{display:flex;flex-direction:column;gap:2px}
+  .switch-row .info .t{font-size:13px;font-weight:500}
+  .switch-row .info .d{font-size:12px;color:var(--tx3)}
+  .sw{position:relative;width:44px;height:24px;flex:none}
+  .sw input{opacity:0;width:0;height:0;position:absolute}
+  .sw .track{position:absolute;inset:0;background:#ccd4dd;border-radius:12px;transition:.2s;cursor:pointer}
+  .sw .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+  .sw input:checked + .track{background:var(--green)}
+  .sw input:checked + .track::after{transform:translateX(20px)}
+  .sw input:disabled + .track{opacity:.5;cursor:not-allowed}
+
+  /* 登录遮罩 */
+  .mask{position:fixed;inset:0;background:rgba(29,39,51,.55);display:flex;align-items:center;justify-content:center;z-index:99}
+  .mask.hide{display:none}
+  .login{background:#fff;border-radius:16px;padding:32px 30px;width:340px;max-width:92vw;text-align:center}
+  .login .ico{width:52px;height:52px;border-radius:14px;background:#eef4fb;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+  .login h3{font-size:17px;font-weight:600;margin-bottom:6px}
+  .login p{font-size:13px;color:var(--tx3);margin-bottom:20px}
+  .login input{
+    width:100%;font-family:inherit;font-size:14px;padding:11px 14px;
+    border:1px solid var(--line2);border-radius:9px;margin-bottom:12px;color:var(--tx)
+  }
+  .login input:focus{outline:none;border-color:var(--accent)}
+  .login button{width:100%;padding:11px;font-size:14px}
+  .login .err{color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left}
+
+  /* toast */
+  .toast{
+    position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+    background:#2b3543;color:#fff;padding:10px 20px;border-radius:9px;font-size:13px;
+    opacity:0;transition:.25s;z-index:200;pointer-events:none;max-width:90vw;text-align:center
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{background:var(--red)}
+  .toast.ok{background:var(--green)}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:760px){.grid2{grid-template-columns:1fr}}
+  .foot{text-align:center;font-size:12px;color:var(--tx3);margin-top:8px}
+</style>
+</head>
+<body>
+
+<div class="mask" id="mask">
+  <div class="login">
+    <div class="ico">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#378add" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v6"/><circle cx="12" cy="15" r="4"/><path d="M9.5 15h5"/>
+      </svg>
+    </div>
+    <h3>风扇温控</h3>
+    <p>请输入访问密码</p>
+    <input type="password" id="pw" placeholder="密码" autocomplete="current-password">
+    <div class="err" id="loginErr"></div>
+    <button class="primary" id="loginBtn">登 录</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="dot off" id="statusDot"></div>
+      <div>
+        <h1>风扇温控</h1>
+        <div class="sub" id="statusText">正在连接…</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="sm" id="refreshBtn">刷新</button>
+      <button class="sm" id="pwBtn">改密码</button>
+      <button class="sm" id="logoutBtn">退出</button>
+    </div>
+  </header>
+
+  <!-- 实时状态 -->
+  <div class="card">
+    <h2>实时状态 <span class="hint" id="updateHint"></span></h2>
+    <div class="metrics">
+      <div class="metric">
+        <div class="lab">当前风扇转速</div>
+        <div class="val c-blue" id="mSpeed">—<small>%</small></div>
+        <div class="note" id="mSpeedNote">等待数据</div>
+      </div>
+      <div class="metric">
+        <div class="lab">CPU 温度</div>
+        <div class="val" id="mCpu">—<small>°C</small></div>
+        <div class="note" id="mCpuNote">检测中…</div>
+      </div>
+      <div class="metric">
+        <div class="lab">硬盘温度</div>
+        <div class="val" id="mHdd">—<small>°C</small></div>
+        <div class="note" id="mHddNote">检测中…</div>
+      </div>
+      <div class="metric">
+        <div class="lab">温控守护</div>
+        <div class="val" id="mDaemon">—</div>
+        <div class="note" id="mDaemonNote">后台进程</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 手动调速 -->
+  <div class="card">
+    <h2>手动调速 <span class="hint">直接下发 fanctrl，临时覆盖温控曲线</span></h2>
+    <div class="speed-row">
+      <div class="speed-val"><span id="speedLabel">35</span><small>%</small></div>
+      <input type="range" id="speedRange" min="0" max="100" value="35">
+      <button class="primary" id="applySpeed">应用</button>
+    </div>
+    <div class="quick">
+      <button data-speed="20">20% 静音</button>
+      <button data-speed="35">35% 安静</button>
+      <button data-speed="50">50% 平衡</button>
+      <button data-speed="70">70% 散热</button>
+      <button data-speed="100">100% 全速</button>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <!-- 温控曲线 -->
+    <div class="card" style="margin-bottom:0">
+      <h2>温控曲线 <span class="hint">自下而上匹配</span></h2>
+      <table>
+        <thead>
+          <tr><th style="width:42px"></th><th>CPU ≤</th><th>硬盘 ≤</th><th>转速</th></tr>
+        </thead>
+        <tbody id="curveBody"></tbody>
+      </table>
+      <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="sm" id="addTier">+ 增加档位</button>
+        <button class="sm danger" id="delTier">− 删除档位</button>
+        <button class="sm primary" id="saveCurve" style="margin-left:auto">保存曲线</button>
+      </div>
+      <p style="font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.7">
+        CPU 与硬盘<b>各自查表</b>：从第一档往下找到自己不超过的上限，两侧结果取<b>较高转速</b>（谁热听谁的）。<br>
+        升降温阈值带<b>迟滞</b>：升档要超过该档上界 + 迟滞温度，降档要低于上一档上界 − 迟滞温度，
+        中间是死区 —— 这是消除「温度骑在分界线上反复翻档」的关键。<br>
+        <b>单次最多变化档数</b>让转速逐级升降（35→50→70→100），避免瞬时尖峰把风扇一把拉到满速。
+      </p>
+    </div>
+
+    <!-- 基础设置 -->
+    <div class="card" style="margin-bottom:0">
+      <h2>基础设置</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+        <label style="font-size:12px;color:var(--tx2)">
+          检测间隔（秒）
+          <input type="number" id="cfgInterval" min="5" max="3600" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          最低转速（%）
+          <input type="number" id="cfgMin" min="0" max="100" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          最高转速（%）
+          <input type="number" id="cfgMax" min="0" max="100" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          迟滞温度（℃，0=关）
+          <input type="number" id="cfgHyst" min="0" max="15" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          单次最多变化档数
+          <input type="number" id="cfgSlew" min="0" max="4" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          排除硬盘（逗号分隔）
+          <input type="text" id="cfgBlacklist" placeholder="sda,sdb" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+      </div>
+      <button class="sm primary" id="saveBase" style="width:100%">保存基础设置</button>
+
+      <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:6px">
+        <div class="switch-row">
+          <div class="info">
+            <span class="t">温控守护开关</span>
+            <span class="d">关闭后仅保留手动调速</span>
+          </div>
+          <label class="sw"><input type="checkbox" id="swEnabled"><span class="track"></span></label>
+        </div>
+        <div class="switch-row">
+          <div class="info">
+            <span class="t">开机自启</span>
+            <span class="d">注册 systemd 服务，重启后自动接管风扇</span>
+          </div>
+          <label class="sw"><input type="checkbox" id="swAutostart"><span class="track"></span></label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div class="card" style="margin-top:16px">
+    <h2>运行日志
+      <span class="hint">
+        <label style="cursor:pointer;user-select:none">
+          <input type="checkbox" id="autoLog" checked style="vertical-align:-1px"> 自动刷新
+        </label>
+      </span>
+    </h2>
+    <div class="log" id="logBox"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="sm" id="logRefresh">刷新日志</button>
+      <button class="sm danger" id="logClear" style="margin-left:auto">清空日志</button>
+    </div>
+  </div>
+
+  <div class="foot">风扇温控 · 飞牛 fnOS 应用 · by 无辣</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  var TOKEN_KEY = "fancontrol_token";
+  var token = localStorage.getItem(TOKEN_KEY) || "";
+  var state = { config: null, statusTimer: null, logTimer: null, dirty: false };
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  function toast(msg, kind){
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(t._tm);
+    t._tm = setTimeout(function(){ t.className = "toast"; }, 2600);
+  }
+
+  function api(path, opts){
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if(token) opts.headers["X-Auth-Token"] = token;
+    if(opts.body && typeof opts.body === "object"){
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(opts.body);
+    }
+    return fetch(path, opts).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if(r.status === 401 && path !== "/api/login"){
+          showLogin();
+          throw new Error("未登录");
+        }
+        if(!r.ok || j.ok === false){
+          throw new Error(j.error || ("请求失败 " + r.status));
+        }
+        return j;
+      });
+    });
+  }
+
+  function showLogin(){
+    $("mask").classList.remove("hide");
+    setTimeout(function(){ $("pw").focus(); }, 60);
+  }
+  function hideLogin(){ $("mask").classList.add("hide"); }
+
+  /* ---------------- 登录 ---------------- */
+  function doLogin(){
+    var pw = $("pw").value;
+    if(!pw){ $("loginErr").textContent = "请输入密码"; return; }
+    $("loginBtn").disabled = true;
+    api("/api/login", { method:"POST", body:{ password: pw } }).then(function(j){
+      token = j.token;
+      localStorage.setItem(TOKEN_KEY, token);
+      $("loginErr").textContent = "";
+      $("pw").value = "";
+      hideLogin();
+      boot();
+    }).catch(function(e){
+      $("loginErr").textContent = e.message || "登录失败";
+    }).then(function(){ $("loginBtn").disabled = false; });
+  }
+  $("loginBtn").onclick = doLogin;
+  $("pw").addEventListener("keydown", function(e){ if(e.key === "Enter") doLogin(); });
+
+  $("logoutBtn").onclick = function(){
+    token = "";
+    localStorage.removeItem(TOKEN_KEY);
+    if(state.statusTimer) clearInterval(state.statusTimer);
+    if(state.logTimer) clearInterval(state.logTimer);
+    showLogin();
+  };
+
+  $("pwBtn").onclick = function(){
+    var oldPw = prompt("请输入当前密码：");
+    if(oldPw === null) return;
+    var newPw = prompt("请输入新密码（至少 4 位）：");
+    if(newPw === null) return;
+    api("/api/password", { method:"POST", body:{ old: oldPw, new: newPw } })
+      .then(function(){ toast("密码已修改，请重新登录", "ok"); $("logoutBtn").click(); })
+      .catch(function(e){ toast(e.message, "err"); });
+  };
+
+  /* ---------------- 状态 ---------------- */
+  function tempClass(v, warn, hot){
+    if(v === null || v === undefined) return "c-tx3";
+    if(v >= hot) return "c-red";
+    if(v >= warn) return "c-amber";
+    return "c-green";
+  }
+
+  function renderStatus(s){
+    var dot = $("statusDot");
+    if(s.daemon_running){ dot.className = "dot"; } else { dot.className = "dot off"; }
+
+    var txt = [];
+    if(!s.fanctrl_found) txt.push("未找到 fanctrl");
+    if(!s.daemon_running) txt.push("守护进程未运行");
+    if(!s.temp_enabled) txt.push("温控已暂停");
+    if(s.last_error) txt.push("错误：" + s.last_error);
+    $("statusText").textContent = txt.length ? txt.join(" · ") : "运行中 · 温控生效";
+    if(txt.length) dot.className = "dot off";
+
+    var sp = s.current_speed;
+    $("mSpeed").innerHTML = (sp === null || sp === undefined ? "—" : sp) + "<small>%</small>";
+    $("mSpeedNote").textContent = sp === null || sp === undefined ? "等待首次下发" : ("目标 " + (s.target_speed === null || s.target_speed === undefined ? "—" : s.target_speed) + "%");
+
+    var c = s.cpu_temp === null || s.cpu_temp === undefined ? null : Math.round(s.cpu_temp);
+    $("mCpu").innerHTML = (c === null ? "—" : c) + "<small>°C</small>";
+    $("mCpu").className = "val " + tempClass(c, 55, 75);
+    var cs = s.cpu_source || "";
+    $("mCpuNote").textContent = cs || "——";
+    $("mCpuNote").title = cs;
+
+    var h = s.hdd_temp === null || s.hdd_temp === undefined ? null : Math.round(s.hdd_temp);
+    $("mHdd").innerHTML = (h === null ? "—" : h) + "<small>°C</small>";
+    $("mHdd").className = "val " + tempClass(h, 45, 55);
+    var hs = s.hdd_source || "";
+    $("mHddNote").textContent = hs || "——";
+    $("mHddNote").title = hs;
+
+    $("mDaemon").textContent = s.daemon_running ? "运行中" : "已停止";
+    $("mDaemon").className = "val " + (s.daemon_running ? "c-green" : "c-red");
+    $("mDaemonNote").textContent = s.temp_enabled ? "温控生效" : "温控已暂停";
+
+    if(!state.dirty && sp !== null && sp !== undefined){
+      var r = $("speedRange");
+      r.value = sp;
+      paintRange(r);
+      $("speedLabel").textContent = sp;
+    }
+
+    var when = s.updated_at ? new Date(s.updated_at * 1000) : null;
+    $("updateHint").textContent = when
+      ? ("更新于 " + when.toLocaleTimeString("zh-CN"))
+      : "";
+  }
+
+  function loadStatus(){
+    return api("/api/status").then(renderStatus).catch(function(e){
+      $("statusText").textContent = "状态获取失败：" + e.message;
+      $("statusDot").className = "dot off";
+    });
+  }
+
+  /* ---------------- 转速 ---------------- */
+  function paintRange(r){
+    var pct = ((r.value - r.min) / (r.max - r.min)) * 100;
+    r.style.setProperty("--pct", pct + "%");
+  }
+  $("speedRange").addEventListener("input", function(){
+    state.dirty = true;
+    $("speedLabel").textContent = this.value;
+    paintRange(this);
+  });
+  $("speedRange").addEventListener("change", function(){ state.dirty = false; });
+
+  $("applySpeed").onclick = function(){
+    var v = parseInt($("speedRange").value, 10);
+    api("/api/speed", { method:"POST", body:{ speed: v } }).then(function(){
+      toast("转速已设为 " + v + "%", "ok");
+      state.dirty = false;
+      loadStatus();
+    }).catch(function(e){ toast(e.message, "err"); });
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll(".quick button"), function(b){
+    b.onclick = function(){
+      var v = parseInt(b.dataset.speed, 10);
+      $("speedRange").value = v;
+      paintRange($("speedRange"));
+      $("speedLabel").textContent = v;
+      api("/api/speed", { method:"POST", body:{ speed: v } }).then(function(){
+        toast("转速已设为 " + v + "%", "ok");
+        loadStatus();
+      }).catch(function(e){ toast(e.message, "err"); });
+    };
+  });
+
+  /* ---------------- 曲线 ---------------- */
+  function renderCurves(curves){
+    var body = $("curveBody");
+    body.innerHTML = "";
+    curves.forEach(function(c, i){
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        '<td><span class="tier-tag">' + (i + 1) + '</span></td>' +
+        '<td><input type="number" data-k="cpu" min="0" max="999" value="' + c.cpu + '"></td>' +
+        '<td><input type="number" data-k="hdd" min="0" max="999" value="' + c.hdd + '"></td>' +
+        '<td><input type="number" data-k="speed" min="0" max="100" value="' + c.speed + '"></td>';
+      body.appendChild(tr);
+    });
+  }
+
+  function collectCurves(){
+    var rows = $("curveBody").querySelectorAll("tr");
+    var out = [];
+    Array.prototype.forEach.call(rows, function(tr){
+      var o = {};
+      Array.prototype.forEach.call(tr.querySelectorAll("input"), function(inp){
+        o[inp.dataset.k] = parseInt(inp.value, 10);
+        if(isNaN(o[inp.dataset.k])) o[inp.dataset.k] = 0;
+      });
+      out.push(o);
+    });
+    return out;
+  }
+
+  $("addTier").onclick = function(){
+    var cs = collectCurves();
+    var last = cs.length ? cs[cs.length - 1] : { cpu: 65, hdd: 50, speed: 55 };
+    var prev = cs.length > 1 ? cs[cs.length - 2] : { cpu: 55, hdd: 45 };
+    cs.push({
+      cpu: Math.min(998, (prev.cpu || 55) + 10),
+      hdd: Math.min(998, (prev.hdd || 45) + 5),
+      speed: Math.min(100, (last.speed || 55) + 15)
+    });
+    renderCurves(cs);
+  };
+  $("delTier").onclick = function(){
+    var cs = collectCurves();
+    if(cs.length <= 1){ toast("至少保留一档", "err"); return; }
+    cs.pop();
+    renderCurves(cs);
+  };
+
+  function applyConfig(cfg){
+    state.config = cfg;
+    renderCurves(cfg.curves || []);
+    $("cfgInterval").value = cfg.check_interval;
+    $("cfgMin").value = cfg.min_speed;
+    $("cfgMax").value = cfg.max_speed;
+    $("cfgHyst").value = cfg.hysteresis === undefined ? 3 : cfg.hysteresis;
+    $("cfgSlew").value = cfg.slew_step === undefined ? 1 : cfg.slew_step;
+    $("cfgBlacklist").value = (cfg.hdd_devices_blacklist || []).join(",");
+    $("swEnabled").checked = !!cfg.enabled;
+  }
+
+  function loadConfig(){
+    return api("/api/config").then(function(j){ applyConfig(j.config); });
+  }
+
+  function pushConfig(cfg){
+    return api("/api/config", { method:"POST", body:{ config: cfg } }).then(function(j){
+      applyConfig(j.config);
+    });
+  }
+
+  $("saveCurve").onclick = function(){
+    var cfg = Object.assign({}, state.config);
+    cfg.curves = collectCurves();
+    pushConfig(cfg).then(function(){ toast("曲线已保存", "ok"); })
+      .catch(function(e){ toast(e.message, "err"); });
+  };
+
+  $("saveBase").onclick = function(){
+    var cfg = Object.assign({}, state.config);
+    cfg.check_interval = parseInt($("cfgInterval").value, 10) || 30;
+    cfg.min_speed = parseInt($("cfgMin").value, 10) || 0;
+    cfg.max_speed = parseInt($("cfgMax").value, 10) || 100;
+    cfg.hysteresis = parseInt($("cfgHyst").value, 10) || 0;
+    cfg.slew_step = parseInt($("cfgSlew").value, 10) || 0;
+    cfg.hdd_devices_blacklist = $("cfgBlacklist").value
+      .split(",").map(function(s){ return s.trim(); }).filter(Boolean);
+    pushConfig(cfg).then(function(){ toast("基础设置已保存", "ok"); })
+      .catch(function(e){ toast(e.message, "err"); });
+  };
+
+  $("swEnabled").onchange = function(){
+    var cfg = Object.assign({}, state.config);
+    cfg.enabled = this.checked;
+    var self = this;
+    pushConfig(cfg).then(function(){
+      toast(self.checked ? "温控已开启" : "温控已暂停", "ok");
+      loadStatus();
+    }).catch(function(e){ toast(e.message, "err"); self.checked = !self.checked; });
+  };
+
+  /* ---------------- 自启 ---------------- */
+  function loadAutostart(){
+    return api("/api/autostart").then(function(j){
+      $("swAutostart").checked = !!j.enabled;
+    }).catch(function(){});
+  }
+  $("swAutostart").onchange = function(){
+    var self = this;
+    self.disabled = true;
+    api("/api/autostart", { method:"POST", body:{ enabled: self.checked } }).then(function(){
+      toast(self.checked ? "开机自启已开启" : "开机自启已关闭", "ok");
+    }).catch(function(e){
+      toast(e.message, "err");
+      self.checked = !self.checked;
+    }).then(function(){ self.disabled = false; });
+  };
+
+  /* ---------------- 日志 ---------------- */
+  function loadLog(){
+    return api("/api/log?lines=300").then(function(j){
+      var box = $("logBox");
+      var atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+      box.textContent = j.log || "";
+      if(atBottom) box.scrollTop = box.scrollHeight;
+    }).catch(function(){});
+  }
+  $("logRefresh").onclick = loadLog;
+  $("logClear").onclick = function(){
+    if(!confirm("确定清空日志？")) return;
+    api("/api/log/clear", { method:"POST" }).then(function(){
+      toast("日志已清空", "ok");
+      loadLog();
+    }).catch(function(e){ toast(e.message, "err"); });
+  };
+  $("autoLog").onchange = function(){
+    if(state.logTimer){ clearInterval(state.logTimer); state.logTimer = null; }
+    if(this.checked) state.logTimer = setInterval(loadLog, 5000);
+  };
+
+  $("refreshBtn").onclick = function(){
+    loadStatus(); loadConfig(); loadAutostart(); loadLog();
+    toast("已刷新");
+  };
+
+  /* ---------------- 启动 ---------------- */
+  function boot(){
+    loadStatus();
+    loadConfig();
+    loadAutostart();
+    loadLog();
+    if(state.statusTimer) clearInterval(state.statusTimer);
+    state.statusTimer = setInterval(loadStatus, 3000);
+    if(state.logTimer) clearInterval(state.logTimer);
+    if($("autoLog").checked) state.logTimer = setInterval(loadLog, 5000);
+  }
+
+  paintRange($("speedRange"));
+
+  // 已存 token 先试探一次
+  if(token){
+    api("/api/status").then(function(s){ hideLogin(); renderStatus(s); boot(); })
+      .catch(function(){ token = ""; localStorage.removeItem(TOKEN_KEY); showLogin(); });
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

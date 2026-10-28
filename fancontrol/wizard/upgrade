@@ -1,0 +1,16 @@
+[
+  {
+    "stepTitle": "升级确认",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "升级不会影响已保存的温控曲线与访问密码。"
+      },
+      {
+        "type": "switch",
+        "field": "wizard_cleanup_old",
+        "label": "停用旧的 fan_control.sh 自启服务"
+      }
+    ]
+  }
+]

@@ -1,0 +1,108 @@
+#!/bin/bash
+# FanControl 应用运行控制：start / stop / status
+# 由飞牛 fnOS 调用，负责拉起/停止 Web 后端与温控守护进程
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+PKG_ETC="${TRIM_PKGETC:-/var/apps/FanControl/etc}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+SERVICE_PORT="${TRIM_SERVICE_PORT:-7300}"
+
+WEB_LOG="${PKG_VAR}/web.log"
+FAND_PID="${PKG_VAR}/fand.pid"
+WEB_PID="${PKG_VAR}/web.pid"
+
+mkdir -p "$PKG_VAR" "$PKG_ETC"
+
+export FAN_APPDIR="$APP_DIR"
+export FAN_PKGETC="$PKG_ETC"
+export FAN_PKGVAR="$PKG_VAR"
+export TRIM_SERVICE_PORT="$SERVICE_PORT"
+
+# 定位 python3
+find_python() {
+  for p in /usr/bin/python3 /usr/local/bin/python3 "$(command -v python3 2>/dev/null)"; do
+    [ -n "$p" ] && [ -x "$p" ] && echo "$p" && return 0
+  done
+  return 1
+}
+
+PY="$(find_python)"
+
+start_fand() {
+  if [ -f "$FAND_PID" ] && kill -0 "$(cat "$FAND_PID" 2>/dev/null)" 2>/dev/null; then
+    return 0
+  fi
+  # 注意：fand.py 内部 log() 会自己写 $PKG_VAR/fan_control.log，
+  # 这里若再把 stdout 追加到同一文件会造成每条日志重复两遍。
+  # 所以 stdout/stderr 丢弃，日志文件由 fand.py 独占写入。
+  nohup "$PY" "$APP_DIR/fand.py" >/dev/null 2>&1 &
+  echo $! > "$FAND_PID"
+}
+
+start_web() {
+  if [ -f "$WEB_PID" ] && kill -0 "$(cat "$WEB_PID" 2>/dev/null)" 2>/dev/null; then
+    return 0
+  fi
+  nohup "$PY" "$APP_DIR/server.py" >> "$WEB_LOG" 2>&1 &
+  echo $! > "$WEB_PID"
+}
+
+stop_pidfile() {
+  local pf="$1"
+  if [ -f "$pf" ]; then
+    local pid
+    pid="$(cat "$pf" 2>/dev/null)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null
+      # 最多等 8 秒
+      for _ in $(seq 1 16); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+      done
+      kill -9 "$pid" 2>/dev/null
+    fi
+    rm -f "$pf"
+  fi
+}
+
+case "$1" in
+  start)
+    if [ -z "$PY" ]; then
+      echo "未找到 python3，无法启动 FanControl" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+      exit 1
+    fi
+    chmod +x "$APP_DIR/bin/fanctrl" 2>/dev/null
+    start_fand
+    start_web
+    echo "FanControl 已启动 (port $SERVICE_PORT)"
+    exit 0
+    ;;
+
+  stop)
+    stop_pidfile "$FAND_PID"
+    stop_pidfile "$WEB_PID"
+    # 兜底：清掉残留进程
+    pkill -f "$APP_DIR/server.py" 2>/dev/null
+    pkill -f "$APP_DIR/fand.py" 2>/dev/null
+    echo "FanControl 已停止"
+    exit 0
+    ;;
+
+  status)
+    running=0
+    if [ -f "$WEB_PID" ] && kill -0 "$(cat "$WEB_PID" 2>/dev/null)" 2>/dev/null; then
+      running=1
+    elif pgrep -f "$APP_DIR/server.py" > /dev/null 2>&1; then
+      running=1
+    fi
+    if [ "$running" -eq 1 ]; then
+      exit 0
+    fi
+    exit 3
+    ;;
+
+  *)
+    echo "用法: $0 {start|stop|status}" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+    exit 1
+    ;;
+esac

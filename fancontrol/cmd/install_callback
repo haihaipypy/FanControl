@@ -1,0 +1,53 @@
+#!/bin/bash
+# 安装后：补权限、初始化配置、按向导值处理旧服务与密码
+set -u
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+PKG_ETC="${TRIM_PKGETC:-/var/apps/FanControl/etc}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+
+mkdir -p "$PKG_ETC" "$PKG_VAR"
+
+# 补可执行权限（fpk 打包可能丢失）
+chmod +x "$APP_DIR/bin/fanctrl" 2>/dev/null
+chmod +x "$APP_DIR/fand.py" 2>/dev/null
+chmod +x "$APP_DIR/server.py" 2>/dev/null
+chmod +x "$APP_DIR"/cmd/* 2>/dev/null
+
+# 校验 fanctrl
+if [ ! -x "$APP_DIR/bin/fanctrl" ] && [ ! -x /root/fanctrl ]; then
+  echo "错误：未找到可用的 fanctrl 风扇控制程序" > "${TRIM_TEMP_LOGFILE:-/dev/null}"
+fi
+
+# ---- 1. 按向导决定是否停用旧的 fan_control.sh 自启服务 ----
+if [ "${wizard_cleanup_old:-true}" = "true" ]; then
+  if command -v systemctl >/dev/null 2>&1; then
+    if systemctl list-unit-files 2>/dev/null | grep -q '^fan-control\.service'; then
+      systemctl disable --now fan-control.service 2>/dev/null
+    fi
+  fi
+  # 杀掉残留的旧脚本进程
+  pkill -f "fan_control.sh" 2>/dev/null
+fi
+
+# ---- 2. 按向导写入访问密码 ----
+if [ -n "${wizard_password:-}" ]; then
+  PY=""
+  for p in /usr/bin/python3 /usr/local/bin/python3 "$(command -v python3 2>/dev/null)"; do
+    [ -n "$p" ] && [ -x "$p" ] && PY="$p" && break
+  done
+  if [ -n "$PY" ]; then
+    FAN_PKGETC="$PKG_ETC" WIZ_PW="$wizard_password" "$PY" - <<'PYEOF'
+import os, hashlib, secrets, json
+pwd = os.environ.get("WIZ_PW", "")
+if pwd:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt.encode(), 120000).hex()
+    path = os.path.join(os.environ.get("FAN_PKGETC", "."), "auth.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"salt": salt, "hash": digest}, f)
+PYEOF
+  fi
+fi
+
+exit 0

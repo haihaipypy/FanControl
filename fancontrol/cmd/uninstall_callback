@@ -1,0 +1,9 @@
+#!/bin/bash
+# 卸载清理后：重载 systemd
+set -u
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload 2>/dev/null
+fi
+
+exit 0

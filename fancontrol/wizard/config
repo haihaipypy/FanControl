@@ -1,0 +1,16 @@
+[
+  {
+    "stepTitle": "FanControl 配置",
+    "items": [
+      {
+        "type": "tips",
+        "helpText": "温控曲线、转速与访问密码请直接在应用页面内修改（桌面点图标打开）。"
+      },
+      {
+        "type": "switch",
+        "field": "wizard_cleanup_old",
+        "label": "停用旧的 fan_control.sh 自启服务"
+      }
+    ]
+  }
+]

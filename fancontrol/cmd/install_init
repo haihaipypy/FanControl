@@ -1,0 +1,21 @@
+#!/bin/bash
+# 安装前：清理可能存在的旧版本进程，避免端口/风扇抢占
+set -u
+
+APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+
+# 停掉本应用残留（升级场景）
+if [ -d "$PKG_VAR" ]; then
+  for pf in "$PKG_VAR/fand.pid" "$PKG_VAR/web.pid"; do
+    if [ -f "$pf" ]; then
+      pid="$(cat "$pf" 2>/dev/null)"
+      [ -n "$pid" ] && kill "$pid" 2>/dev/null
+      rm -f "$pf"
+    fi
+  done
+fi
+pkill -f "$APP_DIR/server.py" 2>/dev/null
+pkill -f "$APP_DIR/fand.py" 2>/dev/null
+
+exit 0

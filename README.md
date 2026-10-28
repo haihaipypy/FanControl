@@ -1,0 +1,334 @@
+# 风扇温控 · 飞牛 fnOS 应用
+
+把原来的 `fan_control.sh` 命令行脚本，做成一个**能点的可视化页面**。
+装进飞牛应用中心，桌面点图标就开，不用再 SSH。
+
+---
+
+## 功能
+
+| 功能 | 说明 |
+|---|---|
+| 实时状态面板 | 当前转速、CPU 温度、硬盘温度、守护进程状态，3 秒自动刷新 |
+| 手动调速 | 滑块 + 快捷档（20/35/50/70/100%），直接下发 `fanctrl` |
+| 温控曲线在线编辑 | 分档表格，改完点保存，**即时生效不用重启** |
+| 平滑策略可调 | 迟滞温度、单次最多变化档数，页面直接改；另有紧急直通保护 |
+| 基础参数 | 检测间隔、最低/最高转速、排除硬盘 |
+| 日志查看 | 页面内看日志尾部，支持自动刷新与清空 |
+| 开机自启 | 一键注册 systemd 服务，重启后自动接管 |
+
+## 温度传感器怎么选（v1.2.0 起）
+
+**读到了值 ≠ 读对了传感器。** 这是整套方案最容易出错的地方 —— 页面上两张温度卡片的**下方小字会实时显示当前取值来源**，日志开头也会打印一行探测结果。
+
+| 温度 | 优先级 | 选取规则 |
+|---|---|---|
+| **CPU** | 1. hwmon `coretemp` / `k10temp` / `zenpower` | **按 `tempN_label` 匹配**（Intel 找 `Package id 0`，AMD 找 `Tctl` / `Tdie`），**不按 `tempN` 序号** |
+| | 2. `/sys/class/thermal/thermal_zone*` | **明确跳过 `acpitz`** |
+| | 3. `sensors` 命令 | 取最大值兜底 |
+| **硬盘** | 1. hwmon `drivetemp` | 内核直读，**不唤醒休眠盘**；用 `realpath(device)` 反查 `/sys/block/*` 得设备名，支持黑名单排除 |
+| | 2. `smartctl -A -n standby` | 精确匹配 ATA 属性 `194` / NVMe `Temperature:` 行 |
+
+### 为什么这么做
+
+**坑 1：`thermal_zone0` 常常是 `acpitz`（ACPI 热区），给的是恒定假值。**
+拾光坞 G2 实测：CPU 温度**永远显示 27℃**，就是这个原因。早期版本把它放在第一优先级，只要文件存在就直接返回，后面的 hwmon 兜底根本走不到。
+
+**坑 2：按 `tempN` 序号挑传感器不可靠。**
+`coretemp` 目录下 `temp1_input` 在不同主板 / 内核版本下可能是整包温度，也可能是某个核心温度。必须按 `tempN_label` 匹配，不能按序号。
+
+**坑 3：`smartctl -A` 输出里可能同时有 `190 Airflow_Temperature_Cel`（机箱进风温度）和 `194 Temperature_Celsius`（盘温）。**
+模糊匹配「含 temperature 的行」可能取到进风温度 —— 那个值往往也不怎么变。现在精确匹配 `194`。
+
+> 排查时看两处：页面温度卡片下方的小字（实时来源）、日志开头的 `温度传感器: CPU=… | HDD=…` 一行。
+> 如果来源显示成 `thermal:thermal_zoneN(acpitz)`，说明机器没有可用的 hwmon CPU 传感器，需要另找方案。
+
+## 与原脚本的关系
+
+安装后会**接管**旧的 `fan_control.sh`：
+- 自动 `systemctl disable --now fan-control.service`
+- 杀掉残留的 `fan_control.sh` 进程
+
+温控算法从原来的「超阈值 +10%」阶跃逻辑，换成**分档曲线 + 平滑策略**。
+
+### 默认曲线（按 Intel N150 + NAS 机械盘标定）
+
+| 档 | CPU 上界 ≤ | 硬盘上界 ≤ | 转速 | CPU 实际区间 | 硬盘实际区间 |
+|---|---|---|---|---|---|
+| 1 | 45℃ | 45℃ | 25% | 0~45 | 0~45 |
+| 2 | 60℃ | 55℃ | **35%** | 46~60 | 46~55 |
+| 3 | 68℃ | 60℃ | 50% | 61~68 | 56~60 |
+| 4 | 78℃ | 66℃ | 70% | 69~78 | 61~66 |
+| 5 | 兜底 | 兜底 | 100% | ≥79 | ≥67 |
+
+**判断方式**：CPU 和硬盘**各自查表** —— 各自从第 1 档往下找**第一个命中的档**
+（条件是 `温度 <= 该档阈值`），两侧算出的转速取**较高值**（谁热听谁的）。
+
+> **阈值是「该档温度上界」，不是「该档起点」。**
+> 写 `hdd: 55` 表示「≤55℃ 都归这一档」，所以 55℃ 仍是 35%，56℃ 才升到 50%。
+> 别把它理解成「50℃ 起跳」。
+
+标定依据：
+
+| 部件 | 依据 | 对曲线的影响 |
+|---|---|---|
+| Intel N150 | Tjmax **105℃**、TDP 6W（PL2 ≤25W） | 温度余量极大，阈值给得宽，不必靠 100% 保命 |
+| NAS 机械盘 | 厂商标 5~65℃（存活线），**寿命线 40℃**；每超 40℃ 5℃ → 故障率 +30%，55℃ 持续约翻倍 | 61℃ 起直接压到 100%，不给折中空间 |
+
+> 为什么这样设计？早期版本写的是「两项都不超上限才算命中」，
+> 结果硬盘基线偏高的机器（NAS 机械盘夏天常年 50~55℃ 很正常）会被一路拖到高速档，
+> 即使 CPU 才 27℃。分侧查表后，硬盘 55℃ 只影响硬盘那一侧的档位。
+
+### 平滑策略（v1.3.0 起）—— 光有曲线还不够
+
+温度会**骑在分档边界上反复翻档**。实测日志里 2.5 小时出现 15 次 `35%↔50%` 抖动，
+根源是 CPU 空闲在 51~54℃ 之间波动，而分界线恰好压在 54/55 —— 擦边就翻档，比稳稳跑到 50% 还吵。
+
+| 机制 | 默认 | 作用 |
+|---|---|---|
+| **迟滞** | 3℃ | 升档需超过当前档上界 +3℃，降档需低于上一档上界 −3℃；中间是死区，保持现状 |
+| **渐变限速** | 1 档 | 单次巡检最多变化 1 档，转速逐级升降（35→50→70→100），杜绝一把拉满 |
+| **紧急直通** | CPU≥90℃ / 硬盘≥70℃ | 无视上面两条，立刻满速 |
+
+效果（回放实测负载节奏，4 小时 / 480 次巡检）：
+
+| 方案 | 转速切换 | 累计转速波动 | 猛跳 ≥35% |
+|---|---|---|---|
+| 旧曲线 + 无迟滞（线上现状） | 78 次 | 2305% | 23 次 |
+| 只换曲线，不加迟滞 | 23 次 | 805% | 23 次 |
+| **新曲线 + 迟滞 + 渐变** | **24 次** | **365%** | **0 次** |
+
+迟滞和渐变都**依赖上一次的档位**，所以档位索引会写进 `state.json`（`cpu_tier` / `hdd_tier`），下一轮读回来用。
+
+两个参数在页面「基础设置」里可调：**迟滞填 0 = 关闭**，**单次最多变化档数填 0 = 不限制**（即退回纯查表）。
+
+### 调参参考
+
+| 想要 | 怎么改 |
+|---|---|
+| 更安静 | 把「转速」列的下两档往下压（如 35→30、50→40），或把硬盘上界整体调高 3~5℃ |
+| 硬盘更凉 | 把硬盘上界整体调低 3~5℃（如 55→50、60→56）；代价是风扇更容易起转 |
+| 空闲不想看到任何转速变化 | 迟滞填 4~5℃ |
+| 回到最朴素的纯查表 | 迟滞填 0 + 单次最多变化档数填 0 |
+
+改完点「保存曲线」/「保存基础设置」，下一个检测周期生效。
+
+## 单例保护
+
+守护进程启动时会抢一把文件锁（`var/fand.lock`）。
+如果已有实例在跑，新启动的进程会自己退出 —— 避免出现两个进程同时调风扇、同时写日志。
+
+---
+
+## 打包
+
+`fnpack.exe` 已放在 `fancontrol-pkg/` 目录下。
+
+```bash
+cd fancontrol-pkg
+./fnpack.exe build --directory fancontrol
+```
+
+产出 `FanControl.fpk`。**`--directory` 不能省**，否则报 `Required file manifest is missing`。
+（`FanControl.fpk` 是 **tar 格式**，校验包内容用 `tar -tf`，别用 `zipfile`。）
+
+> **每次改动都要升 `manifest` 里的 `version`**，否则应用中心会认为是同一个包，
+> 可能拒绝安装或覆盖不生效。当前版本见 `manifest`。
+
+> ⚠️ 打包器有个隐坑：向导文件里 `switch` 类型**不要写 `initValue`**。
+> - 不写 → 打包过 + 安装过 ✅
+> - 写字符串 `"true"` → 打包过，但**实机安装报 `code 18000`** ❌
+> - 写布尔 `true` → 打包直接报 `is not valid due to JSON format...` ❌
+
+### 已知踩坑（改代码前先看）
+
+| 坑 | 现象 | 解法 |
+|---|---|---|
+| `switch` 的 `initValue` | 安装报 `code 18000` | 干脆不写 |
+| `app/ui/config` 里的 `{display_name}` `{port}` | 入口标题显示成字面量 `{display_name}`，页面可能打不开 | **写实际值**，那不是运行时变量，只是官方模板的填空提示 |
+| 服务不实现 `HEAD` | 桌面 iframe 探测拿到 501，页面判为不可用、显示空白 | 实现 `do_HEAD`，返回 200 + 正确的 `Content-Length` |
+| HTTP/1.0 | 桌面壳加载可能不稳 | `protocol_version = "HTTP/1.1"`，所有响应必须带 `Content-Length` |
+| 守护进程多实例 | 日志每行出现两遍、风扇被两个进程抢 | 入口加 `fcntl.flock` 单例锁 |
+| **日志双写** | 单进程下日志**每条仍重复两遍** | `cmd/main` 启动 fand 时把 stdout 重定向到了 `fan_control.log`，而 `fand.py` 的 `log()` 又自己写同一个文件。→ **`cmd/main` 里改成 `>/dev/null`**，日志文件由 `fand.py` 独占写入 |
+| 曲线阈值语义 | 以为写 50 就是「50℃ 起跳」 | 阈值是**该档温度上界**（`温度 <= 阈值` 命中）。想要「50℃ 才 35%」应写 54 之类的上界值 |
+| **CPU 温度恒定不变** | 显示永远 27℃ 之类的固定值 | 取到了 `thermal_zone0` = `acpitz`（ACPI 假值）。改为优先 hwmon `coretemp`/`k10temp` 并按 `label` 挑，跳过 `acpitz` |
+| **传感器按序号选错** | 温度偏高/偏低，或与 `sensors` 输出对不上 | `tempN_input` 的序号在不同主板/内核下含义不同。必须按 `tempN_label` 匹配，不能按序号 |
+| **硬盘温度取到进风温度** | 盘温偏低且几乎不变 | `smartctl -A` 里 `190 Airflow_Temperature_Cel` 与 `194 Temperature_Celsius` 同时存在，模糊匹配取错。改为优先 hwmon `drivetemp`，其次精确匹配 `194` |
+| **转速在 35%/50% 之间反复跳** | 每 30 秒翻一次档，噪音忽大忽小 | 温度骑在分档边界上（CPU 空闲 51~54，分界 54/55）。→ 加**迟滞**，且必须把上次档位写进 `state.json` 才能判断 |
+| **瞬时尖峰把风扇一把拉到 100%** | CPU 抖一下 72℃，风扇冲满速，2 分钟又落回 | 单次巡检直接命中最高档。→ 加**渐变限速**（单次最多 1 档）+ **紧急直通**（≥90℃ 才允许直通满速） |
+| **升级后新曲线不生效** | 装了新版，转速还是老样子 | `load_config()` 只在 `config.json` **不存在时**才写默认值。删掉 `rm /vol3/@appconf/FanControl/config.json` 重生成，或在页面手改曲线 |
+
+## 安装到 NAS
+
+把 `FanControl.fpk` 传到 NAS，然后二选一：
+
+**方式 A：应用中心界面**
+直接双击 fpk，或应用中心右上角「手动安装」选文件。
+
+**方式 B：命令行**
+```bash
+appcenter-cli install-fpk FanControl.fpk
+```
+
+如果项目目录已拷到 NAS，也可以直接源码安装（自动打包）：
+```bash
+cd /path/to/fancontrol
+appcenter-cli install-local
+```
+
+安装向导会让你设置：
+- **页面访问密码**（默认 `fancontrol`，**装完请立刻改**）
+- 是否停用旧的 `fan_control.sh` 自启服务（默认停）
+
+> 端口固定为 `7300`，**不在向导里配置** —— 飞牛桌面入口 `app/ui/config` 里的 `port`
+> 必须写死实际值，做成可变字段会导致入口探测不到服务。
+
+---
+
+## 装之前：先停掉旧脚本（推荐）
+
+如果你**已经装了 `fan_control.sh` 并在跑**，建议先手动停服务，再装本应用。
+这样过渡最干净，也能确认应用有没有正常接管。
+
+```bash
+# 1. 先停旧服务 —— 注意先不要 disable，给自己留条后路
+systemctl stop fan-control
+
+# 2. 确认已停
+systemctl status fan-control --no-pager
+
+# 3. 装应用
+appcenter-cli install-fpk FanControl.fpk
+
+# 4. 装完看新应用的守护日志，确认在正常跑
+tail -f /var/apps/FanControl/var/fan_control.log
+```
+
+**为什么先 `stop` 不 `disable`？**
+万一新应用有问题，你 `systemctl start fan-control` 就能立刻回到旧状态。
+等新应用稳定跑几天确认没问题，安装向导里那个「停用旧自启服务」的开关会在安装时帮你 `disable` 掉，
+或者你手动执行 `systemctl disable fan-control`。
+
+### 关于风扇转速的过渡
+
+`fanctrl` 是**无状态**的 —— 停掉旧服务不会改变当前转速，风扇会停在最后一次设定的值。
+新应用启动后会把转速拉到曲线第一档（默认 25%），所以中间可能有一小段速度过渡，正常现象。
+
+### 旧文件不会被自动删除
+
+`fan_control.sh`、`/etc/systemd/system/fan-control.service`、`/var/log/fan_control.log`
+这些**都会保留** —— 这是故意的，方便你随时回退。
+
+确认新应用跑稳了，想彻底清干净再手动删：
+
+```bash
+rm -f /usr/local/bin/fan_control.sh
+rm -f /etc/systemd/system/fan-control.service
+rm -f /var/log/fan_control.log /var/run/fan_control.state
+systemctl daemon-reload
+```
+
+> `/root/fanctrl` **不用删**。应用自带一份 fanctrl，`/root/fanctrl` 只是兜底路径，
+> 留着更稳（自带那份不存在时会自动用它）。
+
+---
+
+## 访问
+
+装好后两种方式：
+
+1. **飞牛桌面点图标** —— 应用中心里会出现「风扇温控」，点开即是页面
+2. **浏览器直连** —— `http://<NAS内网IP>:7300`
+
+## 使用
+
+默认密码 `fancontrol`。登录后右上角「改密码」修改。
+
+- 想安静：手动调速拖到 20~35%
+- 想省心：打开「温控守护开关」+「开机自启」，之后不用管
+- 调曲线：直接在表格里改数字，点「保存曲线」，下一个检测周期就生效
+
+---
+
+## 目录结构
+
+```
+fancontrol/
+├── manifest                 应用元信息（名称/版本/端口/架构）
+├── ICON.PNG / ICON_256.PNG  应用图标
+├── app/
+│   ├── fand.py              温控守护进程（读温度 → 算转速 → 下发）
+│   ├── server.py            Web 后端（零依赖 http.server）
+│   ├── bin/fanctrl          G2 风扇控制二进制（已内置，免手动下载）
+│   ├── www/index.html       单页界面
+│   └── ui/                  桌面入口配置 + 入口图标
+├── cmd/                     生命周期脚本（install/upgrade/uninstall/config）
+├── wizard/                  安装/升级/卸载/配置向导表单
+└── config/
+    ├── privilege            权限声明（run-as: root）
+    └── resource             资源声明（无）
+```
+
+### 运行时路径（飞牛约定）
+
+| 用途 | 路径 |
+|---|---|
+| 程序目录 | `/var/apps/FanControl/target` |
+| 配置 | `/var/apps/FanControl/etc/config.json`、`auth.json` |
+| 数据/日志 | `/var/apps/FanControl/var/fan_control.log`、`state.json` |
+
+---
+
+## 为什么用 root
+
+调 `fanctrl`、读 `/var/log`、操作 systemd 都需要特权。
+参照飞牛官方文档「只有生命周期脚本确实需要执行特权任务时，才使用 Root 模式」，
+本应用 `config/privilege` 声明 `run-as: root`。
+
+Web 服务监听 0.0.0.0:7300，**仅建议内网使用**，已加密码鉴权。
+如需公网暴露，请自行加反向代理 + HTTPS，并改用强密码。
+
+## 依赖说明
+
+**无需 pip 安装任何东西。** 后端和守护进程只用 Python 标准库，
+fanctrl 二进制已打包进应用。
+
+外部命令（缺失时对应功能降级，不影响启动）：
+- `smartctl` → 读硬盘温度（建议装 `smartmontools`）
+- `hdparm` → 检测硬盘休眠（建议装）
+- `sensors` → CPU 温度兜底（主路径是 `/sys/class/thermal`，通常不需要）
+
+```bash
+apt update && apt install -y smartmontools hdparm lm-sensors
+```
+
+## 常见问题
+
+**页面打不开？**
+```bash
+# 看应用状态
+appcenter-cli list | grep FanControl
+# 看 Web 日志
+cat /var/apps/FanControl/var/web.log
+# 看守护日志
+tail -f /var/apps/FanControl/var/fan_control.log
+```
+
+**转速显示「—」？**
+守护进程还没跑第一轮。检查：
+```bash
+pgrep -f fand.py
+ls -l /var/apps/FanControl/target/bin/fanctrl
+```
+
+**硬盘温度读不到？**
+装 `smartmontools`；若硬盘在休眠，脚本会主动跳过以避免唤醒（这是有意设计）。
+
+**想彻底卸载回原样？**
+应用中心卸载即可。卸载脚本会自动：
+停进程 → 关自启服务 → 删 systemd unit → 把风扇恢复到 35%。
+之后可手动恢复你的 `fan_control.sh`。
+
+---
+
+by 无辣 · <https://blog.1day.vip>
