@@ -33,7 +33,7 @@
   button{
     font-family:inherit;font-size:13px;cursor:pointer;
     background:var(--card);border:1px solid var(--line2);color:var(--tx);
-    padding:7px 14px;border-radius:8px;transition:.15s;
+    padding:7px 14px;border-radius:8px;transition:.15s;white-space:nowrap;
   }
   button:hover{background:#f0f3f6}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
@@ -94,10 +94,19 @@
     border-radius:6px;font-size:11px;color:var(--tx3);cursor:pointer;user-select:none;background:#fff;transition:.12s}
   .daychip:hover{border-color:#bcd6f2}
   .daychip.on{background:#eef4fb;border-color:#bcd6f2;color:var(--accent);font-weight:600}
+  .daysep{width:1px;height:15px;background:var(--line2);margin:0 3px;align-self:center;flex:none}
+  .dayquick{height:23px;line-height:21px;padding:0 7px;border:1px dashed var(--line2);border-radius:6px;
+    font-size:11px;color:var(--tx2);cursor:pointer;user-select:none;background:#fbfcfd;
+    white-space:nowrap;flex:none;transition:.12s;box-sizing:border-box}
+  .dayquick:hover{border-color:#bcd6f2;border-style:solid;color:var(--accent);background:#f4f8fd}
+  .dayquick:active{transform:translateY(1px)}
   td select,td input[type=time]{
     font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line2);
-    border-radius:6px;background:#fff;color:var(--tx)
+    border-radius:6px;background:#fff;color:var(--tx);box-sizing:border-box
   }
+  td select{min-width:74px}
+  /* time 输入框要给足宽度，否则「07:30」会被时钟图标挤掉一位 */
+  td input[type=time]{width:118px;min-width:118px;font-variant-numeric:tabular-nums}
   td select:focus,td input[type=time]:focus{outline:none;border-color:var(--accent)}
   td input.wide{width:100%;min-width:90px}
   .empty-row td{color:var(--tx3);font-size:12px;text-align:center;padding:26px 0}
@@ -335,11 +344,11 @@
       <thead>
         <tr>
           <th style="width:78px">操作</th>
-          <th style="width:104px">时间</th>
+          <th style="width:130px">时间</th>
           <th>星期</th>
-          <th style="width:150px">备注</th>
-          <th style="width:56px">启用</th>
-          <th style="width:46px"></th>
+          <th style="width:140px">备注</th>
+          <th style="width:52px">启用</th>
+          <th style="width:64px"></th>
         </tr>
       </thead>
       <tbody id="powerBody"></tbody>
@@ -362,8 +371,12 @@
     </div>
 
     <p style="font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.8">
-      <b>定时开机靠主板 RTC 唤醒</b>：必须在 BIOS/UEFI 里打开「RTC 唤醒 / Resume by RTC Alarm」，
-      否则关机后不会被叫醒。关机、重启前会自动把下一次开机时间写进 RTC，平时每轮巡检也会自动对齐，改计划不用手动同步。<br>
+      <b>开机计划与主板 RTC 不冲突，是上下级关系</b>：主板的 RTC 闹钟只有一个单次唤醒寄存器，
+      存不下「周一三五 07:30」这种周期计划。本应用当指挥官——每轮巡检算出未来最近的一次开机时间，
+      把它写进 RTC；主板只负责到点执行。所以必须先有计划，RTC 才有内容可写
+      （不加开机计划就不会自动开机）。<br>
+      <b>BIOS/UEFI 里只需要打开「RTC 唤醒 / Resume by RTC Alarm」这一个开关</b>，
+      不要在那里另设具体的每天/某天时刻——那与应用抢同一个寄存器，一关机就会被应用覆盖，反而不准。<br>
       星期不勾选 = <b>每天</b>。开机计划在机器已运行时只是一个标记，不会做任何操作。<br>
       <b>「开机自启」必须打开</b>：否则无人值守开机后调度器不运行，定时关机不会执行。
       关机时间若正好与某次开机相同，以关机为准。
@@ -722,7 +735,11 @@
       var chips = DAY_NAMES.map(function(n, i){
         var on = (it.days || []).indexOf(i) >= 0;
         return '<span class="daychip' + (on ? " on" : "") + '" data-d="' + i + '">' + n + "</span>";
-      }).join("");
+      }).join("") +
+        '<span class="daysep"></span>' +
+        '<span class="dayquick" data-q="work" title="一键选中周一至周五">工作日</span>' +
+        '<span class="dayquick" data-q="weekend" title="一键选中周六、周日">周末</span>' +
+        '<span class="dayquick" data-q="all" title="全部选中；已全选时再点则清空（= 每天）">全选</span>';
       tr.innerHTML =
         "<td>" + sel + "</td>" +
         '<td><input type="time" data-k="time" value="' + (it.time || "07:00") + '"></td>' +
@@ -821,9 +838,29 @@
       state.planDirty = true;
       return;
     }
+    if(el.classList && el.classList.contains("dayquick")){
+      var tr = el;
+      while(tr && tr.tagName !== "TR") tr = tr.parentNode;
+      if(!tr) return;
+      var q = el.getAttribute("data-q");
+      var all = tr.querySelectorAll(".daychip");
+      var set;
+      if(q === "work") set = [0, 1, 2, 3, 4];
+      else if(q === "weekend") set = [5, 6];
+      else {
+        // 全选按钮是切换语义：已全选则清空（清空 = 每天）
+        set = (tr.querySelectorAll(".daychip.on").length === all.length) ? [] : [0, 1, 2, 3, 4, 5, 6];
+      }
+      Array.prototype.forEach.call(all, function(c){
+        var i = parseInt(c.getAttribute("data-d"), 10);
+        c.classList.toggle("on", set.indexOf(i) >= 0);
+      });
+      state.planDirty = true;
+      return;
+    }
     if(el.getAttribute && el.getAttribute("data-del")){
-      var tr = el.parentNode.parentNode;
-      tr.parentNode.removeChild(tr);
+      var trd = el.parentNode.parentNode;
+      trd.parentNode.removeChild(trd);
       state.planDirty = true;
       if(!$("powerBody").querySelectorAll("tr:not(.empty-row)").length) renderPlan([]);
     }
