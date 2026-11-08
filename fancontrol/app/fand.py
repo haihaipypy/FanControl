@@ -57,6 +57,22 @@ SLEW_STEP_DEFAULT = 1
 EMERGENCY_CPU_DEFAULT = 90
 EMERGENCY_HDD_DEFAULT = 70
 
+# 开机全速 —— 系统刚启动时先把风扇拉满吹一遍风道
+#   enabled    : 开关
+#   seconds    : 持续时间（秒）
+#   max_uptime : 仅当系统运行时长 ≤ 该值（秒）时才认为是「刚开机」。
+#                这是关键：应用自身重启 / 升级应用后重新拉起守护进程时，
+#                系统 uptime 已经很大，不应该再吹一次。默认 600 秒（10 分钟）。
+BOOT_BOOST_DEFAULT = {
+    "enabled": True,
+    "seconds": 60,
+    "max_uptime": 600,
+}
+
+# 运行时状态（进程内，不落盘；落盘副本在 state.json 里供页面显示）
+_BOOST = {"until": 0.0, "start": 0.0, "secs": 0}
+
+
 # ---------------------------------------------------------------------------
 # 默认配置 —— 分档曲线
 # 每档: { "cpu": CPU上限, "hdd": 硬盘上限, "speed": 转速% }
@@ -87,6 +103,7 @@ DEFAULT_CONFIG = {
     "slew_step": SLEW_STEP_DEFAULT,        # 单次最多变化档数，0 = 不限制
     "emergency_cpu": EMERGENCY_CPU_DEFAULT,
     "emergency_hdd": EMERGENCY_HDD_DEFAULT,
+    "boot_boost": dict(BOOT_BOOST_DEFAULT),  # 开机后先全速转一会儿
     "hdd_devices_blacklist": [],  # 排除的块设备名，如 ["sda"]
 }
 
@@ -472,6 +489,84 @@ def set_fan_speed(speed: int):
 
 
 # ---------------------------------------------------------------------------
+# 开机全速
+#
+# 为什么要做：整机刚上电时，BIOS 交接完风扇默认档偏低，而系统启动这几分钟
+#   CPU 正在跑一堆服务（飞牛的 docker / 相册索引 / 应用中心扫描），是最热的一段。
+#   先满速吹 1 分钟，把机箱里积的热和开机瞬间的积热排掉，再交回曲线，
+#   比「让曲线慢慢升档」更稳，也顺手把滤网/风道的灰吹一遍。
+#
+# 为什么用 /proc/uptime 判定，而不是「进程一启动就吹」：
+#   升级应用、改配置重启服务、手动重启守护进程，都会让本进程重新启动。
+#   如果只看进程启动，这些场景都会触发一次满速 —— 用户会觉得莫名其妙。
+#   uptime 大 = 系统早就在跑 = 这不是「开机」，跳过。
+# ---------------------------------------------------------------------------
+def read_uptime():
+    """/proc/uptime 第一列 = 系统已运行秒数。读不到返回 None。"""
+    try:
+        with open("/proc/uptime", "r") as f:
+            return float(f.read().split()[0])
+    except Exception:
+        return None
+
+
+def _boot_boost_conf(cfg: dict):
+    """规整 boot_boost 配置，返回 (enabled, seconds, max_uptime)"""
+    bb = cfg.get("boot_boost")
+    if not isinstance(bb, dict):
+        bb = BOOT_BOOST_DEFAULT
+    enabled = bool(bb.get("enabled", True))
+    secs = _int_or(bb.get("seconds"), BOOT_BOOST_DEFAULT["seconds"])
+    secs = max(0, min(3600, secs))
+    max_up = _int_or(bb.get("max_uptime"), BOOT_BOOST_DEFAULT["max_uptime"])
+    max_up = max(60, min(86400, max_up))
+    return enabled, secs, max_up
+
+
+def boot_boost_launch(cfg: dict) -> None:
+    """进程启动时调用：判定要不要进入开机全速，并立刻把风扇拉满。"""
+    _BOOST["until"] = 0.0
+    _BOOST["start"] = 0.0
+    _BOOST["secs"] = 0
+
+    enabled, secs, max_up = _boot_boost_conf(cfg)
+    if not enabled:
+        log("[boot] 开机全速：已关闭")
+        return
+    if secs <= 0:
+        log("[boot] 开机全速：时长 0 秒，跳过")
+        return
+
+    up = read_uptime()
+    if up is None:
+        log("[boot] 开机全速：读不到 /proc/uptime，跳过")
+        return
+    if up > max_up:
+        log("[boot] 开机全速：系统已运行 %.0f 秒（>%d 秒），判定为应用重启而非开机，跳过"
+            % (up, max_up))
+        return
+
+    speed = max(0, min(100, _int_or(cfg.get("max_speed"), 100)))
+    ok, err = set_fan_speed(speed)
+    if not ok:
+        log("[boot] 开机全速：设置 %d%% 失败: %s" % (speed, err))
+        return
+
+    now = time.time()
+    _BOOST["start"] = now
+    _BOOST["until"] = now + secs
+    _BOOST["secs"] = secs
+    log("[boot] 开机全速：风扇拉到 %d%%，持续 %d 秒（系统运行 %.0f 秒）"
+        % (speed, secs, up))
+    write_state(current_speed=speed, target_speed=speed, last_action="开机全速",
+                boot_boost_active=True, boost_until=_BOOST["until"])
+
+
+def boot_boost_active() -> bool:
+    return _BOOST["until"] > time.time()
+
+
+# ---------------------------------------------------------------------------
 # 曲线计算
 # ---------------------------------------------------------------------------
 def _int_or(value, default):
@@ -615,6 +710,40 @@ def tick(cfg: dict) -> None:
     st = read_state()
     current = st.get("current_speed")
 
+    # --- 开机全速期间：只采集温度，转速锁死，不参与曲线决策 -----------------
+    if _BOOST["until"] > 0:
+        now = time.time()
+        speed = max(0, min(100, _int_or(cfg.get("max_speed"), 100)))
+        # 用户在全速期间自己动了滑块 → 尊重手动，立刻结束全速。
+        # 判据必须带时间：state 里的 manual 标志是「曾经手动过」的残留，
+        # 只有 last_change 落在全速开始之后才算「这次是全速期间手动」。
+        if st.get("manual") and (st.get("last_change") or 0) >= _BOOST["start"]:
+            log("[boot] 检测到手动调速，提前结束开机全速")
+            _BOOST["until"] = 0
+            # 本轮直接返回，别按曲线把用户刚调的值又压回去
+            write_state(boot_boost_active=False, cpu_temp=cpu, hdd_temp=hdd,
+                        cpu_source=cpu_src, hdd_source=hdd_src)
+            return
+        elif now < _BOOST["until"]:
+            if current != speed:
+                ok, err = set_fan_speed(speed)
+                if not ok:
+                    log("[boot] 全速期间设置 %d%% 失败: %s" % (speed, err))
+            log("[boot] 开机全速中，剩余 %d 秒（CPU:%s°C HDD:%s°C）"
+                % (int(round(_BOOST["until"] - now)),
+                   cpu if cpu is not None else "未知",
+                   hdd if hdd is not None else "未知"))
+            # 刻意不写 last_change / manual：那会让上面的「手动判定」误触发
+            write_state(cpu_temp=cpu, hdd_temp=hdd, target_speed=speed,
+                        cpu_source=cpu_src, hdd_source=hdd_src,
+                        boot_boost_active=True, boost_until=_BOOST["until"])
+            return
+        else:
+            log("[boot] 开机全速结束（%d 秒），交回温控曲线" % _BOOST["secs"])
+            _BOOST["until"] = 0
+            write_state(boot_boost_active=False)
+    # ---------------------------------------------------------------------
+
     if cpu is None and hdd is None:
         log("无法获取任何温度数据，跳过本次调整 (CPU源:%s / HDD源:%s)"
             % (cpu_src, hdd_src))
@@ -743,6 +872,9 @@ def main():
     log("平滑策略: 迟滞 %s℃ | 单次最多 %s 档 | 紧急直通 CPU≥%s℃ / HDD≥%s℃"
         % (cfg.get("hysteresis"), cfg.get("slew_step"),
            cfg.get("emergency_cpu"), cfg.get("emergency_hdd")))
+    _bb_en, _bb_sec, _bb_up = _boot_boost_conf(cfg)
+    log("开机全速: %s（%d 秒，系统运行 ≤%d 秒时才触发）"
+        % ("开启" if _bb_en else "关闭", _bb_sec, _bb_up))
 
     # 定时开关机调度（后台线程，跟着本进程一起起落）
     threading.Thread(target=_power_loop, name="power-sched", daemon=True).start()
@@ -756,6 +888,9 @@ def main():
             write_state(current_speed=base, last_action="初始化")
         else:
             log("初始化转速失败: %s" % err)
+
+    # 放在初始化之后：初始化可能把转速设成低档，全速要覆盖它
+    boot_boost_launch(cfg)
 
     last_cfg_mtime = 0
     while True:
@@ -776,6 +911,10 @@ def main():
                 write_state(paused=True)
 
             interval = max(5, int(cfg.get("check_interval", 30)))
+            # 全速期间缩短轮询，否则 check_interval=30 会把「60 秒」拖成 60~90 秒
+            if _BOOST["until"] > 0:
+                left = _BOOST["until"] - time.time()
+                interval = max(2, min(interval, int(left) + 1))
             time.sleep(interval)
         except KeyboardInterrupt:
             log("收到中断信号，退出")

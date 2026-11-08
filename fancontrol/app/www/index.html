@@ -148,6 +148,22 @@
   .login button{width:100%;padding:11px;font-size:14px}
   .login .err{color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left}
 
+  /* 密码对话框（复用 .login 外观，改成左对齐表单） */
+  .dlg{width:392px;text-align:left}
+  .dlg h3{text-align:center;margin-bottom:4px}
+  .dlg p{text-align:center;margin-bottom:18px}
+  .dlg label{display:block;font-size:12px;color:var(--tx2);margin-bottom:5px}
+  .dlg input{margin-bottom:12px}
+  .dlg input:last-of-type{margin-bottom:0}
+  .dlg-btns{display:flex;gap:9px;margin-top:14px}
+  .dlg-btns button{flex:1;width:auto;padding:9px;font-size:13px}
+  .dlg .warn{
+    display:none;font-size:12px;color:var(--amber);background:#fdf7ec;
+    border:1px solid #f2e0c0;border-radius:8px;padding:9px 11px;margin-top:12px;line-height:1.65
+  }
+  .dlg .warn.show{display:block}
+  .dlg .warn b{font-weight:600}
+
   /* toast */
   .toast{
     position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
@@ -177,6 +193,33 @@
     <input type="password" id="pw" placeholder="密码" autocomplete="current-password">
     <div class="err" id="loginErr"></div>
     <button class="primary" id="loginBtn">登 录</button>
+  </div>
+</div>
+
+<div class="mask hide" id="pwMask">
+  <div class="login dlg">
+    <h3 id="pwTitle">修改密码</h3>
+    <p id="pwDesc">新密码留空即取消密码保护</p>
+
+    <label id="pwOldLab">当前密码</label>
+    <input type="password" id="pwOld" autocomplete="current-password">
+
+    <label>新密码</label>
+    <input type="password" id="pwNew" placeholder="留空 = 不设密码" autocomplete="new-password">
+
+    <label>确认新密码</label>
+    <input type="password" id="pwNew2" placeholder="再输一次" autocomplete="new-password">
+
+    <div class="warn" id="pwWarn">
+      保存后将<b>取消密码保护</b>：局域网内任何人打开本机 <b>7300</b> 端口都能直接看到并操作本页，
+      也能自己设一个新密码。想恢复：删掉 <b>@appconf/FanControl/auth.json</b>，重启应用后回到默认密码 <b>fancontrol</b>。
+    </div>
+
+    <div class="err" id="pwErr"></div>
+    <div class="dlg-btns">
+      <button id="pwCancel">取消</button>
+      <button class="primary" id="pwSave">保存</button>
+    </div>
   </div>
 </div>
 
@@ -290,6 +333,14 @@
         <label style="font-size:12px;color:var(--tx2)">
           排除硬盘（逗号分隔）
           <input type="text" id="cfgBlacklist" placeholder="sda,sdb" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
+        </label>
+        <label style="font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:8px;grid-column:span 2;padding-top:6px;border-top:1px dashed var(--line)">
+          <input type="checkbox" id="cfgBoost" style="width:16px;height:16px;flex:none;margin:0">
+          <span style="line-height:1.6">开机后先全速运转<em style="font-style:normal;color:var(--tx3)">（整机刚启动时拉满一会儿，排掉开机瞬间的积热并吹通风道）</em></span>
+        </label>
+        <label style="font-size:12px;color:var(--tx2)">
+          全速持续（秒）
+          <input type="number" id="cfgBoostSec" min="0" max="600" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
         </label>
       </div>
       <button class="sm primary" id="saveBase" style="width:100%">保存基础设置</button>
@@ -478,14 +529,72 @@
     showLogin();
   };
 
-  $("pwBtn").onclick = function(){
-    var oldPw = prompt("请输入当前密码：");
-    if(oldPw === null) return;
-    var newPw = prompt("请输入新密码（至少 4 位）：");
-    if(newPw === null) return;
-    api("/api/password", { method:"POST", body:{ old: oldPw, new: newPw } })
-      .then(function(){ toast("密码已修改，请重新登录", "ok"); $("logoutBtn").click(); })
-      .catch(function(e){ toast(e.message, "err"); });
+  $("pwBtn").onclick = openPwDlg;
+
+  /* ---------------- 密码 ---------------- */
+  var authEnabled = true;   // 由 /api/status 的 auth_enabled 同步
+
+  function applyAuthUI(){
+    $("pwBtn").textContent = authEnabled ? "改密码" : "设密码";
+    $("logoutBtn").style.display = authEnabled ? "" : "none";
+  }
+
+  function syncPwWarn(){
+    // 已设密码 + 新密码两栏都空（含纯空格）= 即将取消密码，给出警示并改写按钮文案
+    var cancelling = authEnabled && !$("pwNew").value.trim() && !$("pwNew2").value.trim();
+    $("pwWarn").classList[cancelling ? "add" : "remove"]("show");
+    $("pwSave").textContent = cancelling ? "取消密码" : "保存";
+    $("pwSave").className = cancelling ? "danger" : "primary";
+  }
+
+  function openPwDlg(){
+    $("pwErr").textContent = "";
+    $("pwOld").value = ""; $("pwNew").value = ""; $("pwNew2").value = "";
+    $("pwTitle").textContent = authEnabled ? "修改密码" : "设置密码";
+    $("pwDesc").textContent = authEnabled
+      ? "新密码留空即取消密码保护"
+      : "当前无需密码，设置后打开页面需登录";
+    $("pwNew").placeholder = authEnabled ? "留空 = 不设密码" : "至少 4 位";
+    $("pwOldLab").style.display = authEnabled ? "" : "none";
+    $("pwOld").style.display = authEnabled ? "" : "none";
+    $("pwMask").classList.remove("hide");
+    syncPwWarn();
+    setTimeout(function(){ (authEnabled ? $("pwOld") : $("pwNew")).focus(); }, 60);
+  }
+
+  function closePwDlg(){ $("pwMask").classList.add("hide"); }
+
+  $("pwNew").addEventListener("input", syncPwWarn);
+  $("pwNew2").addEventListener("input", syncPwWarn);
+  $("pwCancel").onclick = closePwDlg;
+  $("pwMask").addEventListener("click", function(ev){ if(ev.target === this) closePwDlg(); });
+  $("pwNew2").addEventListener("keydown", function(e){ if(e.key === "Enter") $("pwSave").click(); });
+
+  $("pwSave").onclick = function(){
+    var oldPw = $("pwOld").value;
+    var n1 = $("pwNew").value.trim(), n2 = $("pwNew2").value.trim();
+    var err = $("pwErr");
+    err.textContent = "";
+    if(authEnabled && !oldPw){ err.textContent = "请输入当前密码"; return; }
+    if(n1 !== n2){ err.textContent = "两次输入的新密码不一致"; return; }
+    if(n1 && n1.length < 4){ err.textContent = "新密码至少 4 位"; return; }
+    if(!n1 && !authEnabled){ err.textContent = "当前已是不设密码状态"; return; }
+
+    $("pwSave").disabled = true;
+    api("/api/password", { method:"POST", body:{ old: oldPw, new: n1 } })
+      .then(function(j){
+        authEnabled = j.auth_enabled !== false;
+        applyAuthUI();
+        closePwDlg();
+        if(authEnabled){
+          toast("密码已修改，请重新登录", "ok");
+          $("logoutBtn").click();
+        } else {
+          toast("已取消密码，页面免登录", "ok");
+        }
+      })
+      .catch(function(e){ err.textContent = e.message || "保存失败"; })
+      .then(function(){ $("pwSave").disabled = false; });
   };
 
   /* ---------------- 状态 ---------------- */
@@ -500,6 +609,11 @@
     var dot = $("statusDot");
     if(s.daemon_running){ dot.className = "dot"; } else { dot.className = "dot off"; }
 
+    if(typeof s.auth_enabled === "boolean" && s.auth_enabled !== authEnabled){
+      authEnabled = s.auth_enabled;
+      applyAuthUI();
+    }
+
     var txt = [];
     if(!s.fanctrl_found) txt.push("未找到 fanctrl");
     if(!s.daemon_running) txt.push("守护进程未运行");
@@ -510,7 +624,13 @@
 
     var sp = s.current_speed;
     $("mSpeed").innerHTML = (sp === null || sp === undefined ? "—" : sp) + "<small>%</small>";
-    $("mSpeedNote").textContent = sp === null || sp === undefined ? "等待首次下发" : ("目标 " + (s.target_speed === null || s.target_speed === undefined ? "—" : s.target_speed) + "%");
+    if(s.boot_boost_active){
+      $("mSpeedNote").textContent = "开机全速 · 剩余 " + (s.boot_boost_remain || 0) + " 秒";
+      $("mSpeedNote").style.color = "var(--blue)";
+    } else {
+      $("mSpeedNote").textContent = sp === null || sp === undefined ? "等待首次下发" : ("目标 " + (s.target_speed === null || s.target_speed === undefined ? "—" : s.target_speed) + "%");
+      $("mSpeedNote").style.color = "";
+    }
 
     var c = s.cpu_temp === null || s.cpu_temp === undefined ? null : Math.round(s.cpu_temp);
     $("mCpu").innerHTML = (c === null ? "—" : c) + "<small>°C</small>";
@@ -640,7 +760,17 @@
     $("cfgHyst").value = cfg.hysteresis === undefined ? 3 : cfg.hysteresis;
     $("cfgSlew").value = cfg.slew_step === undefined ? 1 : cfg.slew_step;
     $("cfgBlacklist").value = (cfg.hdd_devices_blacklist || []).join(",");
+    var bb = cfg.boot_boost || {};
+    $("cfgBoost").checked = bb.enabled === undefined ? true : !!bb.enabled;
+    $("cfgBoostSec").value = bb.seconds === undefined ? 60 : bb.seconds;
+    syncBoostUI();
     $("swEnabled").checked = !!cfg.enabled;
+  }
+
+  function syncBoostUI(){
+    var on = $("cfgBoost").checked;
+    $("cfgBoostSec").disabled = !on;
+    $("cfgBoostSec").style.opacity = on ? "1" : ".45";
   }
 
   function loadConfig(){
@@ -669,9 +799,19 @@
     cfg.slew_step = parseInt($("cfgSlew").value, 10) || 0;
     cfg.hdd_devices_blacklist = $("cfgBlacklist").value
       .split(",").map(function(s){ return s.trim(); }).filter(Boolean);
+    var bs = parseInt($("cfgBoostSec").value, 10);
+    if(isNaN(bs)) bs = 60;
+    var oldBB = cfg.boot_boost || {};
+    cfg.boot_boost = {
+      enabled: $("cfgBoost").checked,
+      seconds: bs,
+      max_uptime: oldBB.max_uptime === undefined ? 600 : oldBB.max_uptime
+    };
     pushConfig(cfg).then(function(){ toast("基础设置已保存", "ok"); })
       .catch(function(e){ toast(e.message, "err"); });
   };
+
+  $("cfgBoost").onchange = syncBoostUI;
 
   $("swEnabled").onchange = function(){
     var cfg = Object.assign({}, state.config);
@@ -956,13 +1096,9 @@
 
   paintRange($("speedRange"));
 
-  // 已存 token 先试探一次
-  if(token){
-    api("/api/status").then(function(s){ hideLogin(); renderStatus(s); boot(); })
-      .catch(function(){ token = ""; localStorage.removeItem(TOKEN_KEY); showLogin(); });
-  } else {
-    showLogin();
-  }
+  // 不管有没有 token 都先探一次：没设密码时后端直接放行，免登录
+  api("/api/status").then(function(s){ hideLogin(); renderStatus(s); boot(); })
+    .catch(function(){ token = ""; localStorage.removeItem(TOKEN_KEY); showLogin(); });
 })();
 </script>
 </body>

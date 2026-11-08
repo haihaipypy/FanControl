@@ -9,18 +9,18 @@
       {
         "type": "password",
         "field": "wizard_password",
-        "label": "页面访问密码",
-        "initValue": "fancontrol",
+        "label": "页面访问密码（可留空）",
+        "initValue": "",
         "rules": [
           {
-            "required": true,
-            "message": "请设置访问密码"
-          },
-          {
-            "min": 4,
-            "message": "密码至少 4 位"
+            "pattern": "^$|^.{4,}$",
+            "message": "留空 = 不设密码；要设置请至少 4 位"
           }
         ]
+      },
+      {
+        "type": "tips",
+        "helpText": "留空则不设密码，打开页面直接可用（建议仅内网这样用）。装好后随时能在页面右上角「设密码 / 改密码」，也能再留空取消。"
       },
       {
         "type": "switch",

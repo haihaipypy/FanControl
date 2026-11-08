@@ -31,24 +31,30 @@ if [ "${wizard_cleanup_old:-true}" = "true" ]; then
   pkill -f "fan_control.sh" 2>/dev/null
 fi
 
-# ---- 2. 按向导写入访问密码 ----
-if [ -n "${wizard_password:-}" ]; then
-  PY=""
-  for p in /usr/bin/python3 /usr/local/bin/python3 "$(command -v python3 2>/dev/null)"; do
-    [ -n "$p" ] && [ -x "$p" ] && PY="$p" && break
-  done
-  if [ -n "$PY" ]; then
-    FAN_PKGETC="$PKG_ETC" WIZ_PW="$wizard_password" "$PY" - <<'PYEOF'
+# ---- 2. 按向导写入访问密码（留空 = 不设密码）----
+PY=""
+for p in /usr/bin/python3 /usr/local/bin/python3 "$(command -v python3 2>/dev/null)"; do
+  [ -n "$p" ] && [ -x "$p" ] && PY="$p" && break
+done
+if [ -n "$PY" ]; then
+  FAN_PKGETC="$PKG_ETC" WIZ_PW="${wizard_password:-}" "$PY" - <<'PYEOF'
 import os, hashlib, secrets, json
-pwd = os.environ.get("WIZ_PW", "")
+pwd = (os.environ.get("WIZ_PW") or "").strip()
+path = os.path.join(os.environ.get("FAN_PKGETC", "."), "auth.json")
 if pwd:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt.encode(), 120000).hex()
-    path = os.path.join(os.environ.get("FAN_PKGETC", "."), "auth.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"salt": salt, "hash": digest}, f)
+    data = {"salt": salt, "hash": digest}
+    note = "访问密码已写入"
+else:
+    # 留空 = 不设密码。必须写显式标记，不能删文件：
+    # 服务端 ensure_auth_file() 会在下次启动把默认密码种回来。
+    data = {"disabled": True}
+    note = "访问密码留空，已设为免登录"
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f)
+print(note)
 PYEOF
-  fi
 fi
 
 exit 0

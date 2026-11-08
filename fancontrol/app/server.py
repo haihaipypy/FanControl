@@ -113,7 +113,14 @@ def ensure_auth_file():
         log("已生成默认密码文件（默认密码: %s）" % DEFAULT_PASSWORD)
 
 
+def auth_enabled():
+    """是否启用访问密码。auth.json 里标了 disabled 就是「不设密码」，免登录。"""
+    return not bool(_read_json(AUTH_FILE).get("disabled"))
+
+
 def verify_password(password):
+    if not auth_enabled():
+        return True
     data = _read_json(AUTH_FILE)
     if not data.get("salt") or not data.get("hash"):
         return password == DEFAULT_PASSWORD
@@ -122,11 +129,24 @@ def verify_password(password):
 
 
 def change_password(old, new):
-    if not verify_password(old):
+    """new 留空 = 取消密码。返回 (ok, err)。
+
+    当前没设密码时不再校验 old —— 那正是「首次设密码」的路径；
+    设了密码则必须验原密码，避免别人在已登录的浏览器上顺手改掉。
+    """
+    new = (new or "").strip()
+    enabled = auth_enabled()
+    if enabled and not verify_password(old or ""):
         return False, "原密码错误"
-    if len(new) < 4:
-        return False, "新密码至少 4 位"
-    _write_json(AUTH_FILE, _hash_password(new))
+    if new:
+        if len(new) < 4:
+            return False, "新密码至少 4 位"
+        _write_json(AUTH_FILE, _hash_password(new))
+        log("访问密码已更新")
+    else:
+        # 只写标记，不删文件：删掉会被 ensure_auth_file 重新种回默认密码
+        _write_json(AUTH_FILE, {"disabled": True})
+        log("访问密码已取消（页面免登录）")
     with _tokens_lock:
         _tokens.clear()
     return True, None
@@ -319,6 +339,8 @@ class Handler(BaseHTTPRequestHandler):
             return {}
 
     def _auth_ok(self):
+        if not auth_enabled():
+            return True
         tok = self.headers.get("X-Auth-Token") or ""
         if not tok:
             qs = parse_qs(urlparse(self.path).query)
@@ -421,6 +443,9 @@ class Handler(BaseHTTPRequestHandler):
         p = u.path
 
         if p == "/api/login":
+            if not auth_enabled():
+                return self._send_json(200, {"ok": True, "token": issue_token(),
+                                             "no_password": True})
             body = self._read_body()
             pw = body.get("password") or ""
             if verify_password(pw):
@@ -482,6 +507,22 @@ class Handler(BaseHTTPRequestHandler):
                 curves.sort(key=lambda x: (x["cpu"], x["hdd"]))
                 cfg["curves"] = curves
                 cfg["enabled"] = bool(cfg.get("enabled", True))
+                bb = cfg.get("boot_boost")
+                if not isinstance(bb, dict):
+                    bb = {}
+                try:
+                    bb_sec = max(0, min(3600, int(bb.get("seconds", 60))))
+                except (TypeError, ValueError):
+                    bb_sec = 60
+                try:
+                    bb_up = max(60, min(86400, int(bb.get("max_uptime", 600))))
+                except (TypeError, ValueError):
+                    bb_up = 600
+                cfg["boot_boost"] = {
+                    "enabled": bool(bb.get("enabled", True)),
+                    "seconds": bb_sec,
+                    "max_uptime": bb_up,
+                }
             except Exception as e:
                 return self._send_json(400, {"ok": False, "error": "参数错误: %s" % e})
             save_config(cfg)
@@ -536,8 +577,8 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_body()
             ok, err = change_password(body.get("old") or "", body.get("new") or "")
             if ok:
-                log("密码已修改")
-                return self._send_json(200, {"ok": True})
+                return self._send_json(200, {"ok": True,
+                                             "auth_enabled": auth_enabled()})
             return self._send_json(400, {"ok": False, "error": err})
 
         return self._send_json(404, {"ok": False, "error": "未知接口"})
@@ -555,6 +596,8 @@ class Handler(BaseHTTPRequestHandler):
         if hdd is None:
             hdd = st.get("hdd_temp")
             hdd_src = (st.get("hdd_source") or hdd_src or "未知") + "（缓存）"
+        boost_until = st.get("boost_until") or 0
+        remain = int(round(boost_until - time.time())) if boost_until else 0
         return self._send_json(200, {
             "ok": True,
             "current_speed": st.get("current_speed"),
@@ -567,8 +610,11 @@ class Handler(BaseHTTPRequestHandler):
             "last_change": st.get("last_change"),
             "updated_at": st.get("updated_at"),
             "last_error": st.get("last_error"),
+            "boot_boost_active": remain > 0,
+            "boot_boost_remain": remain if remain > 0 else 0,
             "daemon_running": fand_running(),
             "temp_enabled": cfg.get("enabled", True),
+            "auth_enabled": auth_enabled(),
             "fanctrl_found": resolve_fanctrl() is not None,
             "now": time.time(),
         })
