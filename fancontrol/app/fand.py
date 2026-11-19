@@ -72,6 +72,46 @@ BOOT_BOOST_DEFAULT = {
 # 运行时状态（进程内，不落盘；落盘副本在 state.json 里供页面显示）
 _BOOST = {"until": 0.0, "start": 0.0, "secs": 0}
 
+# 流量与功耗统计 —— 独立采样线程，与温控决策解耦
+#   enabled : 总开关（关掉后停止采集，已有历史保留）
+#   interval: 采样间隔（秒），与 check_interval 分开，改温控节奏不影响统计精度
+METRICS_DEFAULT = {
+    "enabled": True,
+    "interval": 30,
+    "power": {
+        "rate_yuan": 0.6,        # 电价（元 / kWh）
+        "price_periods": [],     # 分时电价：[{"start","end","rate"}]
+        "tdp_w": 65,             # 估算模型用的 CPU TDP
+        "disk_typical_w": 8,     # 机械盘单盘功耗
+        "nic_fixed_w": 5,        # 单块活动网卡功耗
+        "base_w": 8,             # 主板等固定底座（仅 RAPL 路径叠加）
+        "source": "auto",        # auto / ups / rapl / estimate
+        "ups": {                 # NUT 读取目标，留空自动探测本机 3493
+            "host": "",
+            "port": 0,
+            "name": "",
+        },
+    },
+    "traffic": {
+        "exclude_bridge": True,  # 排除 docker/veth 等虚拟网卡，避免容器流量翻倍
+        "containers": True,      # 显示容器流量排行（需要 docker.sock）
+    },
+}
+
+
+# 消息推送 —— 调用 AutoDocker 的 /api/push，渠道与凭据都在那边，这里只存令牌
+#   enabled  : 总开关
+#   schedule : 定时点，每项自带要带哪几类内容（功耗 / 流量 / 开关机计划）
+#   threshold: 转速阈值告警，开机全速期间不判
+NOTIFY_DEFAULT = {
+    "enabled": False,
+    "base_url": "",
+    "token": "",
+    "channels": [],              # 空 = all，交给 AutoDocker 挑已就绪渠道
+    "schedule": [],
+    "threshold": {"enabled": False, "speed": 80, "cooldown_min": 30},
+}
+
 
 # ---------------------------------------------------------------------------
 # 默认配置 —— 分档曲线
@@ -104,6 +144,8 @@ DEFAULT_CONFIG = {
     "emergency_cpu": EMERGENCY_CPU_DEFAULT,
     "emergency_hdd": EMERGENCY_HDD_DEFAULT,
     "boot_boost": dict(BOOT_BOOST_DEFAULT),  # 开机后先全速转一会儿
+    "metrics": json.loads(json.dumps(METRICS_DEFAULT)),  # 流量与功耗统计
+    "notify": json.loads(json.dumps(NOTIFY_DEFAULT)),    # 消息推送（AutoDocker）
     "hdd_devices_blacklist": [],  # 排除的块设备名，如 ["sda"]
 }
 
@@ -126,6 +168,23 @@ def log(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # 配置读写
 # ---------------------------------------------------------------------------
+def _deep_merge(defaults, user):
+    """把用户配置叠在默认值上，只合并 dict 层级。
+
+    列表整体替换 —— 定时点、电价时段这种列表必须让用户删得掉，
+    用「合并」会导致删掉一条后又被默认值补回来。
+    """
+    out = json.loads(json.dumps(defaults))
+    if not isinstance(user, dict):
+        return out
+    for k, v in user.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 def load_config() -> dict:
     cfg = json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
     if os.path.isfile(CONFIG_FILE):
@@ -134,6 +193,11 @@ def load_config() -> dict:
                 user = json.load(f)
             if isinstance(user, dict):
                 cfg.update(user)
+                # 嵌套配置必须深合并，浅合并会让老配置缺新增子项时整段丢掉默认值：
+                # 比如升级后 user 里只有 {"enabled": true}，power/traffic 就全没了。
+                for key, defaults in (("metrics", METRICS_DEFAULT),
+                                      ("notify", NOTIFY_DEFAULT)):
+                    cfg[key] = _deep_merge(defaults, user.get(key))
         except Exception as e:
             log("配置文件解析失败，使用默认配置: %s" % e)
     # 规范化
@@ -826,6 +890,111 @@ _power_loop.last_sync = 0.0
 
 
 # ---------------------------------------------------------------------------
+# 流量与功耗统计线程
+#
+# 为什么不挂在 tick() 里？
+#   tick 会因为「开机全速」「温控暂停」「温度读不到」提前 return，
+#   把采样挂在那里必然漏数据。统计是独立职责，跟温控决策无关。
+#
+# 为什么不用 check_interval 的节拍？
+#   用户可能把温控间隔调到 300 秒，那样流量/功耗采样就太稀了。
+#   两个循环的节拍必须解耦。
+#
+# 为什么每轮重读配置？
+#   页面上的开关、电价改完要立刻生效，而本线程拿到的 cfg 是启动时的快照。
+# ---------------------------------------------------------------------------
+def _metrics_loop():
+    start_logged = False
+    err_logged_ts = 0.0
+    while True:
+        try:
+            cfg = load_config()
+            m = cfg.get("metrics") or {}
+            try:
+                interval = max(10, min(600, int(m.get("interval") or 30)))
+            except (TypeError, ValueError):
+                interval = 30
+
+            if not m.get("enabled", True):
+                time.sleep(max(interval, 30))
+                continue
+
+            if not start_logged:
+                start_logged = True
+                try:
+                    import energy
+                    src = "RAPL 实测" if energy.rapl_domains() else "模型估算（无 RAPL）"
+                except Exception:
+                    src = "未知"
+                log("流量与功耗统计已启动（每 %d 秒采样一次，功耗来源：%s）"
+                    % (interval, src))
+
+            for mod, label in (("energy", "功耗"), ("netflow", "流量")):
+                try:
+                    __import__(mod).sample(cfg)
+                except Exception as e:
+                    # 限频：一个坏掉的读数不该把日志刷满
+                    if time.time() - err_logged_ts > 300:
+                        err_logged_ts = time.time()
+                        log("%s采样失败: %s" % (label, e))
+
+            time.sleep(interval)
+        except Exception as e:
+            log("统计线程异常: %s" % e)
+            time.sleep(30)
+
+
+# ---------------------------------------------------------------------------
+# 消息推送
+# ---------------------------------------------------------------------------
+def _notify_loop():
+    """每 20 秒看一次：有没有到点的定时推送、转速有没有踩到阈值。
+
+    20 秒是有意的：定时点按「分钟」匹配，循环必须比一分钟密，否则边界上
+    会整分钟漏过去。代价只是每轮读一次配置和一个状态文件，可以忽略。
+    """
+    started = False
+    err_ts = 0.0
+    while True:
+        try:
+            cfg = load_config()
+            n = cfg.get("notify") or {}
+            if not n.get("enabled"):
+                time.sleep(60)
+                continue
+
+            import notify
+            if not started:
+                started = True
+                c = notify.conf(cfg)
+                if c["base_url"] and c["token"]:
+                    log("消息推送已启动（%s，渠道 %s，定时点 %d 个，阈值 %s）"
+                        % (c["base_url"],
+                           "、".join(notify.CHANNEL_TEXT[x] for x in c["channels"]) or "全部已就绪",
+                           len(c["schedule"]),
+                           ("%d%% / 冷却 %d 分钟" % (c["threshold"]["speed"], c["threshold"]["cooldown_min"]))
+                           if c["threshold"]["enabled"] else "关闭"))
+                else:
+                    log("消息推送已开启，但地址或令牌没填 —— 暂不发送")
+
+            fired = notify.tick(cfg, read_state())
+            for f in fired:
+                log("[notify] %s 推送成功：%s（%s）"
+                    % ("定时" if f["kind"] == "schedule" else "阈值", f["title"],
+                       "、".join(x.get("channel", "") for x in f.get("sent") or []) or "无回执")
+                    if f["ok"] else
+                    "[notify] %s 推送失败：%s —— %s"
+                    % ("定时" if f["kind"] == "schedule" else "阈值", f["title"], f["error"]))
+            time.sleep(20)
+        except Exception as e:
+            # 推送只是附带功能，出任何问题都不能把守护进程带走
+            if time.time() - err_ts > 300:
+                err_ts = time.time()
+                log("消息推送线程异常: %s" % e)
+            time.sleep(30)
+
+
+# ---------------------------------------------------------------------------
 # 主循环
 # ---------------------------------------------------------------------------
 def acquire_lock():
@@ -878,6 +1047,10 @@ def main():
 
     # 定时开关机调度（后台线程，跟着本进程一起起落）
     threading.Thread(target=_power_loop, name="power-sched", daemon=True).start()
+
+    # 流量与功耗统计（后台线程，节拍与温控解耦）
+    threading.Thread(target=_metrics_loop, name="metrics", daemon=True).start()
+    threading.Thread(target=_notify_loop, name="notify", daemon=True).start()
 
     st = read_state()
     if st.get("current_speed") is None:

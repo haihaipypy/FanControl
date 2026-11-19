@@ -13,8 +13,12 @@ __pycache__/
 *.pyc
 *.pyo
 
-# 临时校验脚本
+# 临时校验脚本与截图
 _v*.py
+_t*.py
+_demo*.py
+_diag*.py
+_shots/
 
 # 编辑器 / 系统
 .vscode/

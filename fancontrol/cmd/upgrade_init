@@ -3,7 +3,14 @@
 set -u
 
 PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+PKG_ETC="${TRIM_PKGETC:-/var/apps/FanControl/etc}"
 APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+
+# 升级前备份密码设置到 @appvar，upgrade_callback 里按需恢复
+mkdir -p "$PKG_VAR" 2>/dev/null
+if [ -f "$PKG_ETC/auth.json" ]; then
+  cp -f "$PKG_ETC/auth.json" "$PKG_VAR/auth.backup.json" 2>/dev/null
+fi
 
 for pf in "$PKG_VAR/fand.pid" "$PKG_VAR/web.pid"; do
   if [ -f "$pf" ]; then

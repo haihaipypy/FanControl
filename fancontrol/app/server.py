@@ -182,6 +182,55 @@ def resolve_fanctrl():
     return None
 
 
+# 打包时与 manifest 的 version 保持一致（发版时两处一起改）。
+# manifest 在真机上不一定随 target 落地，读不到就拿它顶上，页面永远有版本号。
+BUILD_VERSION = "1.9.4"
+
+_VER_CACHE = {"ts": 0.0, "v": "", "src": ""}
+
+
+def _manifest_dirs():
+    """manifest 可能落地的几个位置，按可信度从高到低排。
+
+    真机上 app.tgz 解到 target/ 下，manifest 是包元数据 —— 有的系统会把它
+    一起放到应用根，有的只留在 .fpk 里不放出来。所以这里多点探测，
+    最后兜底用打包时写死的 BUILD_VERSION。
+    """
+    out = []
+    for p in (os.path.dirname(APPDIR.rstrip("/")),
+              os.path.dirname(PKGECT.rstrip("/")),
+              os.path.dirname(PKGVAR.rstrip("/")),
+              APPDIR):
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
+def app_version():
+    """读 manifest 里的 version，读不到就用 BUILD_VERSION 兜底。
+
+    页面「关于」区显示它，所以绝不能返回空串 —— 那看起来就像版本号丢了。
+    """
+    now = time.time()
+    if _VER_CACHE["v"] and now - _VER_CACHE["ts"] < 60:
+        return _VER_CACHE["v"]
+    for d in _manifest_dirs():
+        p = os.path.join(d, "manifest")
+        try:
+            # utf-8-sig：兼容被记事本另存时带上 BOM 的 manifest
+            with open(p, "r", encoding="utf-8-sig", errors="replace") as f:
+                for line in f:
+                    if line.strip().startswith("version"):
+                        v = line.split("=", 1)[-1].strip()
+                        if v:
+                            _VER_CACHE.update(ts=now, v=v, src="manifest")
+                            return v
+        except Exception:
+            continue
+    _VER_CACHE.update(ts=now, v=BUILD_VERSION, src="builtin")
+    return BUILD_VERSION
+
+
 def read_state():
     return _read_json(STATE_FILE, {})
 
@@ -233,6 +282,34 @@ def power_mod():
     sys.path.insert(0, APPDIR)
     import powersched
     return powersched
+
+
+def energy_mod():
+    """延迟导入功耗统计模块"""
+    sys.path.insert(0, APPDIR)
+    import energy
+    return energy
+
+
+def netflow_mod():
+    """延迟导入流量统计模块"""
+    sys.path.insert(0, APPDIR)
+    import netflow
+    return netflow
+
+
+def ups_mod():
+    """延迟导入 UPS 读取模块"""
+    sys.path.insert(0, APPDIR)
+    import ups
+    return ups
+
+
+def notify_mod():
+    """延迟导入消息推送模块"""
+    sys.path.insert(0, APPDIR)
+    import notify
+    return notify
 
 
 def service_enabled():
@@ -313,6 +390,18 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def _send_csv(self, text, filename):
+        """导出 CSV。带 BOM，否则 Excel 打开中文表头是乱码。"""
+        body = ("\ufeff" + text).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % filename)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
@@ -434,6 +523,58 @@ class Handler(BaseHTTPRequestHandler):
                     return self._send_json(200, power_mod().status())
                 except Exception as e:
                     return self._send_json(500, {"ok": False, "error": str(e)})
+            if p == "/api/ups":
+                # UPS 探测：给页面「检测」按钮用。失败也返回 200 + ok:false，
+                # 前端好把原因显示出来，而不是当成接口挂了。
+                try:
+                    c = energy_mod().conf(read_config())
+                    return self._send_json(200, ups_mod().summary(c["ups"]))
+                except Exception as e:
+                    return self._send_json(200, {"ok": False, "error": str(e)})
+            if p == "/api/energy" or p == "/api/traffic":
+                try:
+                    days = int((qs.get("days") or ["30"])[0] or 30)
+                except (TypeError, ValueError):
+                    days = 30
+                days = max(1, min(90, days))
+                try:
+                    mod = energy_mod() if p == "/api/energy" else netflow_mod()
+                    return self._send_json(200, mod.summary(read_config(), days))
+                except Exception as e:
+                    log("统计接口失败 %s: %s" % (p, e))
+                    return self._send_json(500, {"ok": False, "error": str(e)})
+            if p == "/api/export/energy.csv" or p == "/api/export/traffic.csv":
+                try:
+                    if p.endswith("energy.csv"):
+                        text = energy_mod().export_csv(read_config(), 45)
+                        name = "fancontrol-energy.csv"
+                    else:
+                        text = netflow_mod().export_csv(read_config(), 45)
+                        name = "fancontrol-traffic.csv"
+                    return self._send_csv(text, name)
+                except Exception as e:
+                    return self._send_json(500, {"ok": False, "error": str(e)})
+            if p == "/api/notify":
+                try:
+                    nm = notify_mod()
+                    cfg = read_config()
+                    c = nm.conf(cfg)
+                    res = nm.last_result()
+                    return self._send_json(200, {
+                        "ok": True,
+                        "enabled": c["enabled"],
+                        "configured": bool(c["base_url"] and c["token"]),
+                        "channels": c["channels"],
+                        "schedule": c["schedule"],
+                        "threshold": c["threshold"],
+                        "last": res.get("last") or {},
+                        "threshold_ts": res.get("threshold_ts"),
+                        "recent_slots": res.get("slots") or [],
+                        "now": time.time(),
+                    })
+                except Exception as e:
+                    log("推送状态接口失败: %s" % e)
+                    return self._send_json(500, {"ok": False, "error": str(e)})
             return self._send_json(404, {"ok": False, "error": "未知接口"})
 
         return self._serve_static(p)
@@ -490,6 +631,12 @@ class Handler(BaseHTTPRequestHandler):
             cfg = body.get("config")
             if not isinstance(cfg, dict):
                 return self._send_json(400, {"ok": False, "error": "配置格式错误"})
+            # 老缓存页面不认识新增的配置段，整段都不会带。缺哪段就从磁盘上的现有
+            # 配置补回来，否则用户点一次「保存曲线」就把统计 / 推送设置悄悄清空了。
+            _old = read_config()
+            for _k in ("metrics", "notify"):
+                if _k not in cfg and isinstance(_old.get(_k), dict):
+                    cfg[_k] = _old[_k]
             # 基础校验
             try:
                 cfg["check_interval"] = max(5, min(3600, int(cfg.get("check_interval", 30))))
@@ -523,6 +670,59 @@ class Handler(BaseHTTPRequestHandler):
                     "seconds": bb_sec,
                     "max_uptime": bb_up,
                 }
+                # 流量与功耗统计
+                mm = cfg.get("metrics") if isinstance(cfg.get("metrics"), dict) else {}
+                pp = mm.get("power") if isinstance(mm.get("power"), dict) else {}
+                tt = mm.get("traffic") if isinstance(mm.get("traffic"), dict) else {}
+
+                def _num(src, key, dflt, lo, hi):
+                    try:
+                        return max(lo, min(hi, float(src.get(key, dflt))))
+                    except (TypeError, ValueError):
+                        return float(dflt)
+
+                try:
+                    mi = max(10, min(600, int(mm.get("interval", 30))))
+                except (TypeError, ValueError):
+                    mi = 30
+                us = pp.get("ups") if isinstance(pp.get("ups"), dict) else {}
+                src_pref = str(pp.get("source") or "auto").strip().lower()
+                if src_pref not in ("auto", "ups", "rapl", "estimate"):
+                    src_pref = "auto"
+                cfg["metrics"] = {
+                    "enabled": bool(mm.get("enabled", True)),
+                    "interval": mi,
+                    "power": {
+                        "rate_yuan": round(_num(pp, "rate_yuan", 0.6, 0.0, 20.0), 4),
+                        "price_periods": energy_mod().sanitize_periods(pp.get("price_periods")),
+                        "tdp_w": round(_num(pp, "tdp_w", 65, 1, 1000), 1),
+                        "disk_typical_w": round(_num(pp, "disk_typical_w", 8, 0, 60), 1),
+                        "nic_fixed_w": round(_num(pp, "nic_fixed_w", 5, 0, 60), 1),
+                        "base_w": round(_num(pp, "base_w", 8, 0, 120), 1),
+                        "source": src_pref,
+                        "ups": {
+                            "host": str(us.get("host") or "").strip()[:128],
+                            "port": int(_num(us, "port", 0, 0, 65535)),
+                            "name": str(us.get("name") or "").strip()[:64],
+                        },
+                    },
+                    "traffic": {
+                        "exclude_bridge": bool(tt.get("exclude_bridge", True)),
+                        "containers": bool(tt.get("containers", True)),
+                    },
+                }
+                # 消息推送 —— 统一走 notify 模块的规整函数，避免两处各写一份口径。
+                # 没带这一段（老缓存页面）就原样保留，不能被默认值冲成「关闭」。
+                if isinstance(cfg.get("notify"), dict):
+                    nc = notify_mod().conf(cfg)
+                    cfg["notify"] = {
+                        "enabled": nc["enabled"],
+                        "base_url": nc["base_url"],
+                        "token": nc["token"],
+                        "channels": nc["channels"],
+                        "schedule": nc["schedule"],
+                        "threshold": nc["threshold"],
+                    }
             except Exception as e:
                 return self._send_json(400, {"ok": False, "error": "参数错误: %s" % e})
             save_config(cfg)
@@ -573,6 +773,39 @@ class Handler(BaseHTTPRequestHandler):
             out["rtc_sync"] = result
             return self._send_json(200, out)
 
+        if p == "/api/metrics/reset":
+            body = self._read_body()
+            which = body.get("type") or "all"
+            try:
+                if which in ("all", "energy"):
+                    energy_mod().reset()
+                if which in ("all", "traffic"):
+                    netflow_mod().reset()
+                log("统计历史已清空（%s）" % which)
+                return self._send_json(200, {"ok": True})
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e)})
+
+        if p == "/api/notify/test":
+            body = self._read_body()
+            try:
+                nm = notify_mod()
+                # 允许带未保存的地址 / 令牌先试一次：填完立刻验证，不用先存再试
+                ov = {}
+                for k in ("base_url", "token", "channels"):
+                    if k in body:
+                        ov[k] = body.get(k)
+                r = nm.test(read_config(), ov)
+                log("推送测试：%s%s" % ("成功" if r.get("ok") else "失败",
+                                       "" if r.get("ok") else " —— %s" % r.get("error")))
+                return self._send_json(200 if r.get("ok") else 502, {
+                    "ok": bool(r.get("ok")),
+                    "sent": r.get("sent") or [],
+                    "error": r.get("error") or "",
+                })
+            except Exception as e:
+                return self._send_json(500, {"ok": False, "error": str(e)})
+
         if p == "/api/password":
             body = self._read_body()
             ok, err = change_password(body.get("old") or "", body.get("new") or "")
@@ -616,6 +849,8 @@ class Handler(BaseHTTPRequestHandler):
             "temp_enabled": cfg.get("enabled", True),
             "auth_enabled": auth_enabled(),
             "fanctrl_found": resolve_fanctrl() is not None,
+            "version": app_version(),
+            "version_src": _VER_CACHE.get("src") or "",
             "now": time.time(),
         })
 

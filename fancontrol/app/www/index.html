@@ -6,160 +6,245 @@
 <title>风扇温控</title>
 <style>
   :root{
-    --bg:#f4f6f8; --card:#ffffff; --line:#e3e7ec; --line2:#d3d9e0;
-    --tx:#1d2733; --tx2:#5f6b7a; --tx3:#95a1b1;
-    --green:#1d9e75; --blue:#378add; --amber:#ba7517; --red:#e24b4a;
-    --accent:#378add;
-    --r:12px;
+    /* 中性暖灰 + 墨黑。不用饱和蓝做强调 —— 彩色按钮/彩色淡底是模板感最重的来源 */
+    --bg:#f4f4f1; --card:#ffffff; --line:#e4e3de; --line2:#d3d2cc;
+    --tx:#191917; --tx2:#62625c; --tx3:#96968e;
+    --green:#2c7a58; --blue:#3a6b8c; --amber:#a8650f; --red:#bf3b30;
+    --accent:#191917;
+    --r:6px;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Courier New",monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   body{
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-    background:var(--bg); color:var(--tx); font-size:14px; line-height:1.6;
+    background:var(--bg); color:var(--tx); font-size:13.5px; line-height:1.65;
     -webkit-font-smoothing:antialiased;
   }
-  .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px 20px 60px;transition:opacity .15s ease}
+  /* 首屏：还没问清「要不要登录」之前先不画正文。
+     否则无密码时会先闪一下登录框（遮罩默认可见），有密码时会先闪一下页面骨架。
+     由 /api/status 的返回结果决定去掉这个类还是弹登录框。 */
+  body.booting .wrap{visibility:hidden;opacity:0}
 
   /* 顶栏 */
-  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;gap:12px;flex-wrap:wrap}
   .brand{display:flex;align-items:center;gap:10px}
-  .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--green);flex:none}
-  .brand .dot.off{background:var(--red)}
-  .brand h1{font-size:19px;font-weight:600;letter-spacing:.2px}
-  .brand .sub{font-size:12px;color:var(--tx3);margin-top:1px}
-  .top-actions{display:flex;gap:8px;align-items:center}
+  .brand .dot{width:7px;height:7px;border-radius:1px;background:var(--green);flex:none}
+  .brand .dot.off{background:var(--tx3)}
+  .brand h1{font-size:15px;font-weight:650;letter-spacing:-.01em}
+  .brand .sub{font-size:11.5px;color:var(--tx3);margin-top:1px;font-family:var(--mono);letter-spacing:-.01em}
+  .top-actions{display:flex;gap:6px;align-items:center}
 
   /* 按钮 */
   button{
-    font-family:inherit;font-size:13px;cursor:pointer;
+    font-family:inherit;font-size:12.5px;cursor:pointer;
     background:var(--card);border:1px solid var(--line2);color:var(--tx);
-    padding:7px 14px;border-radius:8px;transition:.15s;white-space:nowrap;
+    padding:6px 12px;border-radius:var(--r);transition:background .13s,border-color .13s;white-space:nowrap;
   }
-  button:hover{background:#f0f3f6}
+  button:hover{background:#f7f7f4;border-color:#c3c2bb}
   button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-  button.primary:hover{background:#2d78c4}
-  button.danger{color:var(--red);border-color:#f0c4c4}
-  button.danger:hover{background:#fdf2f2}
-  button:disabled{opacity:.45;cursor:not-allowed}
-  button.sm{padding:5px 10px;font-size:12px}
+  button.primary:hover{background:#33332f}
+  button.danger{color:var(--red);border-color:#e2cbc8}
+  button.danger:hover{background:#fbf3f2;border-color:#d7b5b1}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.sm{padding:4px 9px;font-size:12px}
 
   /* 卡片 */
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;margin-bottom:16px}
-  .card h2{font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
-  .card h2 .hint{font-size:12px;font-weight:400;color:var(--tx3);margin-left:auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:12px}
+  .card h2{font-size:12.5px;font-weight:650;letter-spacing:.01em;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .card h2 .hint{font-size:11.5px;font-weight:400;color:var(--tx3);margin-left:auto;font-family:var(--mono);letter-spacing:-.01em}
+  /* hint 里塞了控件（自动刷新勾选）时用正文字体，等宽字排中文很怪 */
+  .card h2 .hint label{font-family:inherit;letter-spacing:0;font-size:11.5px}
 
-  /* 指标格 */
-  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-  .metric{background:#f7f9fb;border-radius:10px;padding:14px 16px}
-  .metric .lab{font-size:12px;color:var(--tx2);margin-bottom:6px;display:flex;align-items:center;gap:6px}
-  .metric .val{font-size:26px;font-weight:600;line-height:1.1}
-  .metric .val small{font-size:13px;font-weight:400;color:var(--tx3);margin-left:2px}
+  /* 指标格：不做浅色底块，改成左侧竖线分隔 —— 底块 + 圆角是仪表盘模板的标配 */
+  .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0}
+  .metric{padding:2px 16px;border-left:1px solid var(--line)}
+  .metric:first-child{border-left:none;padding-left:2px}
+  .metric .lab{font-size:11.5px;color:var(--tx3);margin-bottom:5px;display:flex;align-items:center;gap:6px}
+  .metric .val{font-size:28px;font-weight:500;line-height:1.08;letter-spacing:-.03em;
+               font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .metric .val small{font-size:12px;font-weight:400;color:var(--tx3);margin-left:3px;letter-spacing:0}
   .metric .note{font-size:11px;color:var(--tx3);margin-top:4px}
+  /* 文字型指标（运行中 / 已停止）不能按数字的字号排，否则撑破格子 */
+  .metric .val-txt{font-size:17px;font-weight:600;letter-spacing:-.01em;line-height:1.5}
   .c-green{color:var(--green)} .c-blue{color:var(--blue)}
   .c-amber{color:var(--amber)} .c-red{color:var(--red)} .c-tx3{color:var(--tx3)}
 
   /* 转速控制 */
   .speed-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .speed-val{font-size:32px;font-weight:600;min-width:110px;font-variant-numeric:tabular-nums}
-  .speed-val small{font-size:15px;color:var(--tx3);font-weight:400}
+  .speed-val{font-size:30px;font-weight:500;min-width:104px;letter-spacing:-.03em;
+             font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
+  .speed-val small{font-size:14px;color:var(--tx3);font-weight:400;letter-spacing:0}
   input[type=range]{
-    -webkit-appearance:none;appearance:none;flex:1;min-width:200px;height:6px;
-    border-radius:3px;background:linear-gradient(to right,var(--accent) 0%,var(--accent) var(--pct,35%),#e3e7ec var(--pct,35%),#e3e7ec 100%);
+    -webkit-appearance:none;appearance:none;flex:1;min-width:200px;height:4px;
+    border-radius:2px;background:linear-gradient(to right,var(--accent) 0%,var(--accent) var(--pct,35%),#e4e3de var(--pct,35%),#e4e3de 100%);
     outline:none;
   }
   input[type=range]::-webkit-slider-thumb{
-    -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
-    background:#fff;border:2px solid var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15)
+    -webkit-appearance:none;width:16px;height:16px;border-radius:50%;
+    background:#fff;border:1.5px solid var(--accent);cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.18)
   }
-  .quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
-  .quick button{padding:5px 11px;font-size:12px}
+  .quick{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+  .quick button{padding:4px 10px;font-size:11.5px;color:var(--tx2)}
+  .quick button:hover{color:var(--tx)}
 
   /* 表格 */
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}
-  th{font-size:12px;color:var(--tx2);font-weight:500;background:#f9fafc}
-  th:first-child{border-radius:8px 0 0 0} th:last-child{border-radius:0 8px 0 0}
+  th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line)}
+  /* 表头：中文别加字距，散了就散成一片 */
+  th{font-size:11px;color:var(--tx3);font-weight:500;letter-spacing:0;
+     background:transparent;border-bottom-color:var(--line2)}
   tr:last-child td{border-bottom:none}
   td input{
-    width:72px;font-family:inherit;font-size:13px;padding:5px 8px;
-    border:1px solid var(--line2);border-radius:6px;background:#fff;color:var(--tx)
+    width:72px;font-family:inherit;font-size:13px;padding:4px 8px;
+    border:1px solid var(--line2);border-radius:var(--r);background:#fff;color:var(--tx)
   }
   td input:focus{outline:none;border-color:var(--accent)}
-  .tier-tag{display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;
-    border-radius:6px;background:#eef4fb;color:var(--accent);font-size:11px;font-weight:600}
+  .tier-tag{display:inline-block;width:20px;height:20px;line-height:18px;text-align:center;
+    border:1px solid var(--line2);border-radius:3px;background:#fff;color:var(--tx3);
+    font-size:10.5px;font-weight:600;font-family:var(--mono)}
 
   /* 定时开关机 */
   .daychips{display:flex;gap:4px;flex-wrap:wrap}
-  .daychip{width:23px;height:23px;line-height:21px;text-align:center;border:1px solid var(--line2);
-    border-radius:6px;font-size:11px;color:var(--tx3);cursor:pointer;user-select:none;background:#fff;transition:.12s}
-  .daychip:hover{border-color:#bcd6f2}
-  .daychip.on{background:#eef4fb;border-color:#bcd6f2;color:var(--accent);font-weight:600}
-  .daysep{width:1px;height:15px;background:var(--line2);margin:0 3px;align-self:center;flex:none}
-  .dayquick{height:23px;line-height:21px;padding:0 7px;border:1px dashed var(--line2);border-radius:6px;
-    font-size:11px;color:var(--tx2);cursor:pointer;user-select:none;background:#fbfcfd;
+  .daychip{width:22px;height:22px;line-height:20px;text-align:center;border:1px solid var(--line2);
+    border-radius:4px;font-size:11px;color:var(--tx3);cursor:pointer;user-select:none;background:#fff;transition:.12s}
+  .daychip:hover{border-color:#a9a8a1;color:var(--tx2)}
+  .daychip.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .daysep{width:1px;height:14px;background:var(--line2);margin:0 3px;align-self:center;flex:none}
+  .dayquick{height:22px;line-height:20px;padding:0 7px;border:1px dashed var(--line2);border-radius:4px;
+    font-size:11px;color:var(--tx2);cursor:pointer;user-select:none;background:transparent;
     white-space:nowrap;flex:none;transition:.12s;box-sizing:border-box}
-  .dayquick:hover{border-color:#bcd6f2;border-style:solid;color:var(--accent);background:#f4f8fd}
+  .dayquick:hover{border-color:#a9a8a1;border-style:solid;color:var(--tx);background:#f7f7f4}
   .dayquick:active{transform:translateY(1px)}
   td select,td input[type=time]{
-    font-family:inherit;font-size:13px;padding:5px 8px;border:1px solid var(--line2);
-    border-radius:6px;background:#fff;color:var(--tx);box-sizing:border-box
+    font-family:inherit;font-size:12.5px;padding:4px 8px;border:1px solid var(--line2);
+    border-radius:var(--r);background:#fff;color:var(--tx);box-sizing:border-box
   }
   td select{min-width:74px}
   /* time 输入框要给足宽度，否则「07:30」会被时钟图标挤掉一位 */
-  td input[type=time]{width:118px;min-width:118px;font-variant-numeric:tabular-nums}
+  td input[type=time]{width:112px;min-width:112px;font-variant-numeric:tabular-nums;
+    font-family:var(--mono);font-size:12.5px;letter-spacing:-.01em}
   td select:focus,td input[type=time]:focus{outline:none;border-color:var(--accent)}
   td input.wide{width:100%;min-width:90px}
   .empty-row td{color:var(--tx3);font-size:12px;text-align:center;padding:26px 0}
 
   /* 日志 */
   .log{
-    background:#1e2530;color:#c8d3e0;border-radius:10px;padding:14px 16px;
-    font-family:ui-monospace,Consolas,"Courier New",monospace;font-size:12px;line-height:1.7;
+    background:#1b1b19;color:#c9c8c1;border-radius:var(--r);padding:13px 15px;
+    font-family:var(--mono);font-size:11.5px;line-height:1.75;
     max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all;
   }
-  .log:empty::before{content:"暂无日志";color:#66748a}
+  .log:empty::before{content:"暂无日志";color:#6d6d66}
 
   /* 开关 */
-  .switch-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
+  .switch-row{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line);gap:16px}
   .switch-row:last-child{border-bottom:none;padding-bottom:0}
   .switch-row .info{display:flex;flex-direction:column;gap:2px}
   .switch-row .info .t{font-size:13px;font-weight:500}
-  .switch-row .info .d{font-size:12px;color:var(--tx3)}
-  .sw{position:relative;width:44px;height:24px;flex:none}
+  .switch-row .info .d{font-size:11.5px;color:var(--tx3);line-height:1.55}
+  .sw{position:relative;width:36px;height:20px;flex:none}
   .sw input{opacity:0;width:0;height:0;position:absolute}
-  .sw .track{position:absolute;inset:0;background:#ccd4dd;border-radius:12px;transition:.2s;cursor:pointer}
-  .sw .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
+  .sw .track{position:absolute;inset:0;background:#d3d2cc;border-radius:4px;transition:.18s;cursor:pointer}
+  .sw .track::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:3px;background:#fff;transition:.18s}
   .sw input:checked + .track{background:var(--green)}
-  .sw input:checked + .track::after{transform:translateX(20px)}
+  .sw input:checked + .track::after{transform:translateX(16px)}
   .sw input:disabled + .track{opacity:.5;cursor:not-allowed}
 
+  /* 统计：柱状图 */
+  .bars{display:flex;align-items:flex-end;gap:2px;height:76px;margin-top:16px;
+        padding-top:12px;border-top:1px solid var(--line)}
+  .bars .bar{flex:1;min-height:2px;background:#d9d8d2;border-radius:1px 1px 0 0;transition:background .15s}
+  .bars .bar:hover{background:var(--accent)}
+  .bars .bar.empty{background:#eceae4}
+  /* 还没数据就别留一个空框加三条标签，整个柱图连同轴一起收掉 */
+  .bars:empty{display:none}
+  .bars:empty + .bar-axis{display:none}
+  .bar-axis{display:flex;justify-content:space-between;font-size:10.5px;color:var(--tx3);
+            margin-top:6px;font-family:var(--mono);letter-spacing:-.01em}
+  .sub-line{display:flex;gap:16px;flex-wrap:wrap;font-size:11.5px;color:var(--tx3);margin-top:12px}
+  .sub-line b{font-weight:600;color:var(--tx);font-variant-numeric:tabular-nums}
+
+  /* 统计：折叠设置区 */
+  details{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}
+  summary{cursor:pointer;font-size:11.5px;color:var(--tx2);list-style:none;user-select:none;
+          display:flex;align-items:center;gap:6px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"\25B8";color:var(--tx3);transition:.15s;display:inline-block;font-size:10px}
+  details[open] summary::before{transform:rotate(90deg)}
+  .set-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:14px}
+  .set-grid label{font-size:11.5px;color:var(--tx3)}
+  .set-grid input,.set-grid select,.period-row input{
+    width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:6px 9px;
+    border:1px solid var(--line2);border-radius:var(--r);color:var(--tx);background:#fff
+  }
+  .set-grid input:focus,.set-grid select:focus,.period-row input:focus{outline:none;border-color:var(--accent)}
+  .period-row{display:grid;grid-template-columns:1fr 1fr 1fr 40px;gap:8px;align-items:end;margin-top:8px}
+  .period-row button{height:32px;padding:0 6px;margin-top:5px}
+  .tag{display:inline-block;font-size:10.5px;padding:1px 5px;border-radius:3px;
+       background:#eeede8;color:var(--tx2);font-weight:500;margin-left:2px;
+       font-family:var(--mono);letter-spacing:-.01em}
+  .tag.warn{background:#f8efdf;color:var(--amber)}
+  .tag.ok{background:#e7f2eb;color:var(--green)}
+  .tag.off{background:#eeede8;color:var(--tx3)}
+
+  /* 消息推送：渠道勾选 + 定时行 */
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--tx2);
+        padding:6px 10px;border:1px solid var(--line2);border-radius:var(--r);background:#fff;
+        cursor:pointer;user-select:none}
+  .chip input{width:13px;height:13px;margin:0;flex:none;accent-color:var(--accent)}
+  .chip:has(input:checked){border-color:var(--accent);color:var(--tx);background:#f7f7f4}
+  .push-row{display:grid;grid-template-columns:118px 1fr 46px;gap:10px;align-items:center;
+            margin-top:7px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r);background:#fbfbf9}
+  .push-row input[type=time]{width:100%;font-family:var(--mono);font-size:12.5px;padding:5px 8px;
+            border:1px solid var(--line2);border-radius:var(--r);color:var(--tx);background:#fff;
+            letter-spacing:-.01em}
+  .push-row input[type=time]:focus{outline:none;border-color:var(--accent)}
+  .push-row .chk{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--tx2)}
+  .push-row .chk label{display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+  .push-row .chk input{width:13px;height:13px;margin:0;flex:none;accent-color:var(--accent)}
+  .push-row button{height:30px;padding:0 8px;font-size:11.5px}
+  /* 窄屏：时间与删除占一行，三个勾选框整行铺到下面，别挤成三截 */
+  @media(max-width:760px){
+    .push-row{grid-template-columns:1fr 46px;grid-template-areas:"t d" "c c";row-gap:8px}
+    .push-row input[type=time]{grid-area:t}
+    .push-row .chk{grid-area:c;gap:10px 16px}
+    .push-row button{grid-area:d}
+  }
+
+  /* 小节标题（表单里的分组，不用卡片再套一层） */
+  .sect-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:8px}
+  .sect{font-size:12px;font-weight:600;letter-spacing:.01em}
+  .sect-note{font-size:10.5px;color:var(--tx3);text-align:right;line-height:1.5}
+
   /* 登录遮罩 */
-  .mask{position:fixed;inset:0;background:rgba(29,39,51,.55);display:flex;align-items:center;justify-content:center;z-index:99}
+  .mask{position:fixed;inset:0;background:rgba(25,25,23,.52);display:flex;align-items:center;justify-content:center;z-index:99}
   .mask.hide{display:none}
-  .login{background:#fff;border-radius:16px;padding:32px 30px;width:340px;max-width:92vw;text-align:center}
-  .login .ico{width:52px;height:52px;border-radius:14px;background:#eef4fb;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
-  .login h3{font-size:17px;font-weight:600;margin-bottom:6px}
-  .login p{font-size:13px;color:var(--tx3);margin-bottom:20px}
+  .login{background:#fff;border-radius:var(--r);padding:30px 28px;width:336px;max-width:92vw;text-align:center;
+         border:1px solid var(--line)}
+  .login .ico{width:40px;height:40px;border-radius:var(--r);background:#f1f0ec;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+  .login h3{font-size:15px;font-weight:650;margin-bottom:5px;letter-spacing:-.01em}
+  .login p{font-size:12px;color:var(--tx3);margin-bottom:18px}
   .login input{
-    width:100%;font-family:inherit;font-size:14px;padding:11px 14px;
-    border:1px solid var(--line2);border-radius:9px;margin-bottom:12px;color:var(--tx)
+    width:100%;font-family:inherit;font-size:14px;padding:9px 12px;
+    border:1px solid var(--line2);border-radius:var(--r);margin-bottom:12px;color:var(--tx)
   }
   .login input:focus{outline:none;border-color:var(--accent)}
-  .login button{width:100%;padding:11px;font-size:14px}
-  .login .err{color:var(--red);font-size:12px;min-height:16px;margin-bottom:8px;text-align:left}
+  .login button{width:100%;padding:10px;font-size:13px}
+  .login .err{color:var(--red);font-size:11.5px;min-height:16px;margin-bottom:6px;text-align:left}
 
   /* 密码对话框（复用 .login 外观，改成左对齐表单） */
-  .dlg{width:392px;text-align:left}
+  .dlg{width:386px;text-align:left}
   .dlg h3{text-align:center;margin-bottom:4px}
-  .dlg p{text-align:center;margin-bottom:18px}
-  .dlg label{display:block;font-size:12px;color:var(--tx2);margin-bottom:5px}
-  .dlg input{margin-bottom:12px}
+  .dlg p{text-align:center;margin-bottom:16px}
+  .dlg label{display:block;font-size:11.5px;color:var(--tx3);margin-bottom:5px}
+  .dlg input{margin-bottom:11px}
   .dlg input:last-of-type{margin-bottom:0}
-  .dlg-btns{display:flex;gap:9px;margin-top:14px}
-  .dlg-btns button{flex:1;width:auto;padding:9px;font-size:13px}
+  .dlg-btns{display:flex;gap:8px;margin-top:14px}
+  .dlg-btns button{flex:1;width:auto;padding:8px;font-size:12.5px}
   .dlg .warn{
-    display:none;font-size:12px;color:var(--amber);background:#fdf7ec;
-    border:1px solid #f2e0c0;border-radius:8px;padding:9px 11px;margin-top:12px;line-height:1.65
+    display:none;font-size:11.5px;color:var(--amber);background:#faf4e9;
+    border:1px solid #ecdfc4;border-radius:var(--r);padding:9px 11px;margin-top:12px;line-height:1.65
   }
   .dlg .warn.show{display:block}
   .dlg .warn b{font-weight:600}
@@ -167,24 +252,86 @@
   /* toast */
   .toast{
     position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
-    background:#2b3543;color:#fff;padding:10px 20px;border-radius:9px;font-size:13px;
-    opacity:0;transition:.25s;z-index:200;pointer-events:none;max-width:90vw;text-align:center
+    background:#191917;color:#fff;padding:9px 18px;border-radius:var(--r);font-size:12.5px;
+    opacity:0;transition:.22s;z-index:200;pointer-events:none;max-width:90vw;text-align:center
   }
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .toast.err{background:var(--red)}
   .toast.ok{background:var(--green)}
 
-  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   @media(max-width:760px){.grid2{grid-template-columns:1fr}}
-  .foot{text-align:center;font-size:12px;color:var(--tx3);margin-top:8px}
+  .foot{text-align:center;font-size:11px;color:var(--tx3);margin-top:8px}
+
+  /* 推送文案预览：按手机气泡的宽度收窄，这样能直接看出哪一行会被折掉。
+     注意分隔线用的是 U+2500，在桌面比例字体里只有半角宽，比飞书/钉钉的
+     全角渲染短一半 —— 预览里的短横线不是文案问题，手机上是满行的。 */
+  .msg-demo{background:#fbfbf9;border:1px solid var(--line);border-radius:var(--r);
+            padding:15px 17px;font-size:12.5px;line-height:1.85;white-space:pre-wrap;
+            max-width:252px;
+            font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",
+                        "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif}
+
+  /* 宽表格在窄屏自己滑，别把整页撑宽（定时计划有 6 列，手机上必然放不下） */
+  .tbl-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -2px;padding:0 2px}
+  .tbl-scroll table{min-width:520px}
+  /* 计划表 6 列，星期那格要放下 7 个日块 + 3 个快捷按钮，得给够 */
+  .tbl-scroll.tbl-wide table{min-width:768px}
+  .only-narrow{display:none}
+  @media(max-width:760px){
+    .only-narrow{display:block;font-size:11px;color:var(--tx3);margin-bottom:6px}
+  }
+
+  /* 页签导航：下划线式，不用胶囊分段控件 */
+  .tabs{display:flex;gap:22px;border-bottom:1px solid var(--line);margin-bottom:16px;
+        overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs a{flex:0 0 auto;font-size:13px;color:var(--tx3);padding:0 1px 9px;
+          text-decoration:none;white-space:nowrap;transition:color .13s;
+          border-bottom:1.5px solid transparent;margin-bottom:-1px}
+  .tabs a:hover{color:var(--tx2)}
+  .tabs a.on{color:var(--tx);font-weight:600;border-bottom-color:var(--tx)}
+  .page{display:none}
+  .page.on{display:block}
+
+  /* 页头 */
+  .page-head{margin:0 0 14px}
+  .page-head h2{font-size:15px;font-weight:650;letter-spacing:-.01em;margin-bottom:3px}
+  .page-head p{font-size:11.5px;color:var(--tx3);line-height:1.6;max-width:74ch}
+
+  /* 概览速览：同样不用底块 */
+  .quick-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0}
+  .qs{display:flex;flex-direction:column;gap:2px;padding:2px 16px;border-left:1px solid var(--line)}
+  .qs:first-child{border-left:none;padding-left:2px}
+  .qs .k{font-size:11.5px;color:var(--tx3)}
+  .qs .v{font-size:19px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .qs .n{font-size:11px;color:var(--tx3)}
+  .qs .go{font-size:11px;color:var(--tx2);text-decoration:none}
+  .qs .go:hover{color:var(--tx);text-decoration:underline}
+
+  /* 项目链接 */
+  .links{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:8px}
+  .link{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid var(--line);
+        border-radius:var(--r);text-decoration:none;color:var(--tx);background:#fff;transition:.13s}
+  .link:hover{border-color:#b9b8b1;background:#fbfbf9}
+  .link .ic{width:26px;height:26px;flex:none;border-radius:4px;background:#f1f0ec;
+            display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--tx2);
+            font-family:var(--mono);font-weight:600}
+  .link .tx{min-width:0}
+  .link .tx b{display:block;font-size:12.5px;font-weight:600}
+  .link .tx span{display:block;font-size:11px;color:var(--tx3);overflow:hidden;
+                 text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);letter-spacing:-.01em}
+  .link .arw{margin-left:auto;color:var(--tx3);font-size:13px;flex:none}
+  .about-line{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--tx3);margin-bottom:14px}
+  .about-line b{color:var(--tx);font-weight:600}
 </style>
 </head>
-<body>
+<body class="booting">
 
-<div class="mask" id="mask">
+<div class="mask hide" id="mask">
   <div class="login">
     <div class="ico">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#378add" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#62625c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12 3v6"/><circle cx="12" cy="15" r="4"/><path d="M9.5 15h5"/>
       </svg>
     </div>
@@ -239,54 +386,90 @@
     </div>
   </header>
 
-  <!-- 实时状态 -->
-  <div class="card">
-    <h2>实时状态 <span class="hint" id="updateHint"></span></h2>
-    <div class="metrics">
-      <div class="metric">
-        <div class="lab">当前风扇转速</div>
-        <div class="val c-blue" id="mSpeed">—<small>%</small></div>
-        <div class="note" id="mSpeedNote">等待数据</div>
-      </div>
-      <div class="metric">
-        <div class="lab">CPU 温度</div>
-        <div class="val" id="mCpu">—<small>°C</small></div>
-        <div class="note" id="mCpuNote">检测中…</div>
-      </div>
-      <div class="metric">
-        <div class="lab">硬盘温度</div>
-        <div class="val" id="mHdd">—<small>°C</small></div>
-        <div class="note" id="mHddNote">检测中…</div>
-      </div>
-      <div class="metric">
-        <div class="lab">温控守护</div>
-        <div class="val" id="mDaemon">—</div>
-        <div class="note" id="mDaemonNote">后台进程</div>
-      </div>
-    </div>
-  </div>
+  <nav class="tabs" id="tabs">
+    <a href="#/overview" data-p="overview">概览</a>
+    <a href="#/fan" data-p="fan">温控</a>
+    <a href="#/stats" data-p="stats">功耗流量</a>
+    <a href="#/schedule" data-p="schedule">定时</a>
+    <a href="#/notify" data-p="notify">推送</a>
+    <a href="#/system" data-p="system">系统</a>
+  </nav>
 
-  <!-- 手动调速 -->
-  <div class="card">
-    <h2>手动调速 <span class="hint">直接下发 fanctrl，临时覆盖温控曲线</span></h2>
-    <div class="speed-row">
-      <div class="speed-val"><span id="speedLabel">35</span><small>%</small></div>
-      <input type="range" id="speedRange" min="0" max="100" value="35">
-      <button class="primary" id="applySpeed">应用</button>
+  <!-- ==================== 概览 ==================== -->
+  <section class="page on" data-page="overview">
+    <div class="card">
+      <h2>实时状态 <span class="hint" id="updateHint"></span></h2>
+      <div class="metrics">
+        <div class="metric">
+          <div class="lab">当前风扇转速</div>
+          <div class="val c-blue" id="mSpeed">--<small>%</small></div>
+          <div class="note" id="mSpeedNote">等待数据</div>
+        </div>
+        <div class="metric">
+          <div class="lab">CPU 温度</div>
+          <div class="val" id="mCpu">--<small>°C</small></div>
+          <div class="note" id="mCpuNote">检测中…</div>
+        </div>
+        <div class="metric">
+          <div class="lab">硬盘温度</div>
+          <div class="val" id="mHdd">--<small>°C</small></div>
+          <div class="note" id="mHddNote">检测中…</div>
+        </div>
+        <div class="metric">
+          <div class="lab">温控守护</div>
+          <div class="val" id="mDaemon">—</div>
+          <div class="note" id="mDaemonNote">后台进程</div>
+        </div>
+      </div>
     </div>
-    <div class="quick">
-      <button data-speed="20">20% 静音</button>
-      <button data-speed="35">35% 安静</button>
-      <button data-speed="50">50% 平衡</button>
-      <button data-speed="70">70% 散热</button>
-      <button data-speed="100">100% 全速</button>
-    </div>
-  </div>
 
-  <div class="grid2">
-    <!-- 温控曲线 -->
-    <div class="card" style="margin-bottom:0">
-      <h2>温控曲线 <span class="hint">自下而上匹配</span></h2>
+    <div class="card">
+      <h2>手动调速</h2>
+      <div class="speed-row">
+        <div class="speed-val"><span id="speedLabel">35</span><small>%</small></div>
+        <input type="range" id="speedRange" min="0" max="100" value="35">
+        <button class="primary" id="applySpeed">应用</button>
+      </div>
+      <div class="quick">
+        <button data-speed="20">20% 静音</button>
+        <button data-speed="35">35% 安静</button>
+        <button data-speed="50">50% 平衡</button>
+        <button data-speed="70">70% 散热</button>
+        <button data-speed="100">100% 全速</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>今日速览</h2>
+      <div class="quick-stats">
+        <div class="qs">
+          <span class="k">今日用电</span>
+          <span class="v c-amber" id="ovKwh">—</span>
+          <span class="n" id="ovCost">—</span>
+        </div>
+        <div class="qs">
+          <span class="k">今日流量</span>
+          <span class="v c-blue" id="ovNet">—</span>
+          <span class="n" id="ovNetNote">—</span>
+        </div>
+        <div class="qs">
+          <span class="k">下次关机</span>
+          <span class="v" id="ovOff" style="font-size:15px">—</span>
+          <span class="n" id="ovOffNote">定时开关机</span>
+        </div>
+        <div class="qs">
+          <span class="k">下次开机</span>
+          <span class="v" id="ovOn" style="font-size:15px">—</span>
+          <span class="n" id="ovOnNote">主板 RTC 唤醒</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 温控 ==================== -->
+  <section class="page" data-page="fan">
+    <div class="card">
+      <h2>分档曲线</h2>
       <table>
         <thead>
           <tr><th style="width:42px"></th><th>CPU ≤</th><th>硬盘 ≤</th><th>转速</th></tr>
@@ -298,157 +481,452 @@
         <button class="sm danger" id="delTier">− 删除档位</button>
         <button class="sm primary" id="saveCurve" style="margin-left:auto">保存曲线</button>
       </div>
-      <p style="font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.7">
-        CPU 与硬盘<b>各自查表</b>：从第一档往下找到自己不超过的上限，两侧结果取<b>较高转速</b>（谁热听谁的）。<br>
-        升降温阈值带<b>迟滞</b>：升档要超过该档上界 + 迟滞温度，降档要低于上一档上界 − 迟滞温度，
-        中间是死区 —— 这是消除「温度骑在分界线上反复翻档」的关键。<br>
-        <b>单次最多变化档数</b>让转速逐级升降（35→50→70→100），避免瞬时尖峰把风扇一把拉到满速。
-      </p>
+      <details>
+        <summary>曲线怎么算</summary>
+        <p style="font-size:11.5px;color:var(--tx3);margin-top:8px;line-height:1.75">
+          CPU 与硬盘各自查表，两侧取较高转速（谁热听谁的）。<b>迟滞</b>：升档要超过该档上界 + 迟滞温度，
+          降档要低于上一档上界 − 迟滞温度，中间是死区 —— 消除「温度骑在分界线上反复翻档」。
+          <b>单次最多变化档数</b>让转速逐级升降，避免瞬时尖峰把风扇一把拉到满速。
+        </p>
+      </details>
     </div>
 
-    <!-- 基础设置 -->
-    <div class="card" style="margin-bottom:0">
-      <h2>基础设置</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-        <label style="font-size:12px;color:var(--tx2)">
-          检测间隔（秒）
-          <input type="number" id="cfgInterval" min="5" max="3600" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          最低转速（%）
-          <input type="number" id="cfgMin" min="0" max="100" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          最高转速（%）
-          <input type="number" id="cfgMax" min="0" max="100" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          迟滞温度（℃，0=关）
-          <input type="number" id="cfgHyst" min="0" max="15" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          单次最多变化档数
-          <input type="number" id="cfgSlew" min="0" max="4" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          排除硬盘（逗号分隔）
-          <input type="text" id="cfgBlacklist" placeholder="sda,sdb" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
-        <label style="font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:8px;grid-column:span 2;padding-top:6px;border-top:1px dashed var(--line)">
-          <input type="checkbox" id="cfgBoost" style="width:16px;height:16px;flex:none;margin:0">
-          <span style="line-height:1.6">开机后先全速运转<em style="font-style:normal;color:var(--tx3)">（整机刚启动时拉满一会儿，排掉开机瞬间的积热并吹通风道）</em></span>
-        </label>
-        <label style="font-size:12px;color:var(--tx2)">
-          全速持续（秒）
-          <input type="number" id="cfgBoostSec" min="0" max="600" style="width:100%;margin-top:5px;font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(--line2);border-radius:7px;color:var(--tx);background:#fff">
-        </label>
+    <div class="card">
+      <h2>基础参数</h2>
+      <div class="set-grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+        <label>检测间隔（秒）<input type="number" id="cfgInterval" min="5" max="3600"></label>
+        <label>最低转速（%）<input type="number" id="cfgMin" min="0" max="100"></label>
+        <label>最高转速（%）<input type="number" id="cfgMax" min="0" max="100"></label>
+        <label>迟滞温度（℃，0=关）<input type="number" id="cfgHyst" min="0" max="15"></label>
+        <label>单次最多变化档数<input type="number" id="cfgSlew" min="0" max="4"></label>
+        <label>排除硬盘（逗号分隔）<input type="text" id="cfgBlacklist" placeholder="sda,sdb"></label>
       </div>
-      <button class="sm primary" id="saveBase" style="width:100%">保存基础设置</button>
 
-      <div style="margin-top:18px;border-top:1px solid var(--line);padding-top:6px">
+      <div style="margin-top:16px;border-top:1px dashed var(--line);padding-top:12px">
         <div class="switch-row">
           <div class="info">
-            <span class="t">温控守护开关</span>
-            <span class="d">关闭后仅保留手动调速</span>
+            <span class="t">开机后先全速运转</span>
+            <span class="d">整机刚启动时拉满一会儿，排掉开机瞬间的积热并吹通风道</span>
           </div>
-          <label class="sw"><input type="checkbox" id="swEnabled"><span class="track"></span></label>
+          <label class="sw"><input type="checkbox" id="cfgBoost"><span class="track"></span></label>
         </div>
         <div class="switch-row">
           <div class="info">
-            <span class="t">开机自启</span>
-            <span class="d">注册 systemd 服务，重启后自动接管风扇</span>
+            <span class="t">全速持续时间</span>
+            <span class="d">秒；上面开关关闭时此值不生效</span>
           </div>
-          <label class="sw"><input type="checkbox" id="swAutostart"><span class="track"></span></label>
+          <input type="number" id="cfgBoostSec" min="0" max="600"
+                 style="width:96px;font-family:inherit;font-size:13px;padding:6px 9px;border:1px solid var(--line2);border-radius:7px;text-align:right">
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- 定时开关机 -->
-  <div class="card" style="margin-top:16px">
-    <h2>定时开关机 <span class="hint" id="powerHint">—</span></h2>
-
-    <div class="metrics" style="margin-bottom:16px">
-      <div class="metric">
-        <div class="lab">下次开机</div>
-        <div class="val" id="pNextOn" style="font-size:17px">—</div>
-        <div class="note" id="pNextOnNote">由「开机」计划决定</div>
-      </div>
-      <div class="metric">
-        <div class="lab">下次关机</div>
-        <div class="val" id="pNextOff" style="font-size:17px">—</div>
-        <div class="note" id="pNextOffNote">关机 / 重启</div>
-      </div>
-      <div class="metric">
-        <div class="lab">主板 RTC 闹钟</div>
-        <div class="val" id="pRtc" style="font-size:17px">—</div>
-        <div class="note" id="pRtcNote">实际生效的唤醒时间</div>
-      </div>
-      <div class="metric">
-        <div class="lab">调度器</div>
-        <div class="val" id="pSched" style="font-size:17px">—</div>
-        <div class="note" id="pSchedNote">后台线程</div>
+      <div style="display:flex;margin-top:14px">
+        <button class="sm primary" id="saveBase" style="margin-left:auto">保存基础设置</button>
       </div>
     </div>
 
-    <table>
-      <thead>
-        <tr>
-          <th style="width:78px">操作</th>
-          <th style="width:130px">时间</th>
-          <th>星期</th>
-          <th style="width:140px">备注</th>
-          <th style="width:52px">启用</th>
-          <th style="width:64px"></th>
-        </tr>
-      </thead>
-      <tbody id="powerBody"></tbody>
-    </table>
-
-    <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
-      <button class="sm" id="addPlan">+ 新增计划</button>
-      <button class="sm" id="syncRtc">同步 RTC 闹钟</button>
-      <button class="sm primary" id="savePlan" style="margin-left:auto">保存计划</button>
-    </div>
-
-    <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:6px">
+    <div class="card">
+      <h2>运行开关</h2>
       <div class="switch-row">
         <div class="info">
-          <span class="t">定时开关机总开关</span>
-          <span class="d">关闭后不执行任何计划，并清除本应用写入的 RTC 唤醒闹钟</span>
+          <span class="t">温控守护开关</span>
+          <span class="d">关闭后仅保留手动调速，曲线不再接管风扇</span>
         </div>
-        <label class="sw"><input type="checkbox" id="swPower"><span class="track"></span></label>
+        <label class="sw"><input type="checkbox" id="swEnabled"><span class="track"></span></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== 功耗 ==================== -->
+  <!-- ==================== 功耗与流量 ==================== -->
+  <section class="page" data-page="stats">
+    <div class="card">
+      <h2>数据采集 <span class="hint" id="metricsHint">—</span></h2>
+      <div class="switch-row" style="padding-top:0;padding-bottom:0">
+        <div class="info">
+          <span class="t">开启采集</span>
+          <span class="d">关闭后停止功耗与流量采样；已归档的历史数据保留，重新打开继续累加</span>
+        </div>
+        <label class="sw"><input type="checkbox" id="swMetrics"><span class="track"></span></label>
       </div>
     </div>
 
-    <p style="font-size:12px;color:var(--tx3);margin-top:10px;line-height:1.8">
-      <b>开机计划与主板 RTC 不冲突，是上下级关系</b>：主板的 RTC 闹钟只有一个单次唤醒寄存器，
-      存不下「周一三五 07:30」这种周期计划。本应用当指挥官——每轮巡检算出未来最近的一次开机时间，
-      把它写进 RTC；主板只负责到点执行。所以必须先有计划，RTC 才有内容可写
-      （不加开机计划就不会自动开机）。<br>
-      <b>BIOS/UEFI 里只需要打开「RTC 唤醒 / Resume by RTC Alarm」这一个开关</b>，
-      不要在那里另设具体的每天/某天时刻——那与应用抢同一个寄存器，一关机就会被应用覆盖，反而不准。<br>
-      星期不勾选 = <b>每天</b>。开机计划在机器已运行时只是一个标记，不会做任何操作。<br>
-      <b>「开机自启」必须打开</b>：否则无人值守开机后调度器不运行，定时关机不会执行。
-      关机时间若正好与某次开机相同，以关机为准。
-    </p>
-  </div>
+    <div class="card" style="margin-top:16px">
+      <h2>功耗与电费 <span class="hint" id="energyHint">—</span></h2>
 
-  <!-- 日志 -->
-  <div class="card" style="margin-top:16px">
-    <h2>运行日志
-      <span class="hint">
-        <label style="cursor:pointer;user-select:none">
-          <input type="checkbox" id="autoLog" checked style="vertical-align:-1px"> 自动刷新
-        </label>
-      </span>
-    </h2>
-    <div class="log" id="logBox"></div>
-    <div style="display:flex;gap:8px;margin-top:12px">
-      <button class="sm" id="logRefresh">刷新日志</button>
-      <button class="sm danger" id="logClear" style="margin-left:auto">清空日志</button>
+      <div class="metrics">
+        <div class="metric">
+          <div class="lab">实时功耗 <span class="tag off" id="energySrc">—</span></div>
+          <div class="val c-amber" id="mPower">--<small>W</small></div>
+          <div class="note" id="mPowerNote">等待首次采样</div>
+        </div>
+        <div class="metric">
+          <div class="lab">今日用电</div>
+          <div class="val" id="mKwhToday">--<small>kWh</small></div>
+          <div class="note" id="mCostToday">—</div>
+        </div>
+        <div class="metric">
+          <div class="lab">本月用电</div>
+          <div class="val c-blue" id="mKwhMonth">--<small>kWh</small></div>
+          <div class="note" id="mCostMonth">—</div>
+        </div>
+      </div>
+      <div class="bars" id="energyBars"></div>
+      <div class="bar-axis"><span id="energyAxisL">—</span><span>近 30 天用电</span><span id="energyAxisR">—</span></div>
+
+      <details>
+        <summary>电费与功耗参数</summary>
+        <div class="set-grid">
+          <label>功率来源
+            <select id="cfgSrc">
+              <option value="auto">自动（优先 UPS）</option>
+              <option value="ups">只用 UPS</option>
+              <option value="rapl">只用 RAPL</option>
+              <option value="estimate">只用估算</option>
+            </select>
+          </label>
+          <label>电价（元 / kWh）<input type="number" id="cfgRate" step="0.01" min="0" max="20"></label>
+          <label>机械盘单盘（W）<input type="number" id="cfgDiskW" step="0.5" min="0" max="60"></label>
+          <label>主板等底座（W）<input type="number" id="cfgBaseW" step="0.5" min="0" max="120"></label>
+          <label>CPU TDP（W）<input type="number" id="cfgTdp" step="1" min="1" max="1000"></label>
+          <label>单网卡（W）<input type="number" id="cfgNicW" step="0.5" min="0" max="60"></label>
+        </div>
+        <div style="margin-top:18px">
+          <div style="font-size:12px;color:var(--tx2)">
+            UPS（NUT，只读）
+            <div style="color:var(--tx3);font-size:11px;margin-top:3px;line-height:1.6">
+              只读飞牛「UPS 电源管理」背后的 upsd，不发任何控制指令，不影响市电切换与关机策略。
+              地址留空自动探测本机 3493；远程 UPS 填对方 NAS 的 IP。
+            </div>
+          </div>
+          <div class="set-grid" style="margin-top:10px">
+            <label>NUT 地址<input id="cfgUpsHost" placeholder="留空自动探测" maxlength="128"></label>
+            <label>端口<input type="number" id="cfgUpsPort" min="0" max="65535" placeholder="3493"></label>
+            <label>实例名<input id="cfgUpsName" placeholder="留空用第一个" maxlength="64"></label>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+            <button class="sm" id="upsProbe">检测 UPS</button>
+            <span id="upsResult" style="font-size:11px;color:var(--tx3)"></span>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <div style="font-size:12px;color:var(--tx2)">
+            分时电价（可选，最多 12 段）
+            <div style="color:var(--tx3);font-size:11px;margin-top:3px;line-height:1.6">
+              未覆盖的时段按上面的基础电价算；跨零点写 23:00 → 07:00
+            </div>
+          </div>
+          <div id="periodList"></div>
+          <button class="sm" id="addPeriod" style="margin-top:10px">+ 添加时段</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap">
+          <button class="sm primary" id="saveEnergy">保存参数</button>
+          <button class="sm" id="exportEnergy" style="margin-left:auto">导出 CSV</button>
+        </div>
+        <p style="font-size:11px;color:var(--tx3);margin-top:10px;line-height:1.8">
+          硬盘按介质区分：机械盘用上面的单盘功耗，SSD / NVMe 固定按 2.5W 计。<br>
+          <b>UPS 优先时不再叠加底座与硬盘</b> —— UPS 报的本来就是整机功率，再加会重复计一次。<br>
+          估算模式下数值仅供参考 —— TDP、硬盘数、网卡数都取的是配置值与实测占用，不是真实功率计。
+        </p>
+      </details>
     </div>
-  </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>网络流量 <span class="hint" id="flowHint">—</span></h2>
+
+      <div class="metrics">
+        <div class="metric">
+          <div class="lab">实时速率</div>
+          <div class="val c-blue" id="mNetRate">—</div>
+          <div class="note" id="mNetRateNote">↑ —</div>
+        </div>
+        <div class="metric">
+          <div class="lab">今日流量</div>
+          <div class="val" id="mNetToday">—</div>
+          <div class="note" id="mNetTodayNote">↑ —</div>
+        </div>
+        <div class="metric">
+          <div class="lab">本月流量</div>
+          <div class="val" id="mNetMonth">—</div>
+          <div class="note" id="mNetMonthNote">↑ —</div>
+        </div>
+        <div class="metric">
+          <div class="lab">开机累计</div>
+          <div class="val" id="mNetBoot">—</div>
+          <div class="note" id="mNetBootNote">↑ —</div>
+        </div>
+      </div>
+      <div class="bars" id="flowBars"></div>
+      <div class="bar-axis"><span id="flowAxisL">—</span><span>近 30 天下行</span><span id="flowAxisR">—</span></div>
+
+      <details>
+        <summary>网卡明细与容器排行</summary>
+        <div class="tbl-scroll">
+          <table style="margin-top:12px">
+            <thead><tr><th>网卡</th><th>实时下行</th><th>实时上行</th><th>开机累计</th></tr></thead>
+            <tbody id="ifaceBody"></tbody>
+          </table>
+        </div>
+        <div id="ctrWrap" style="margin-top:16px"></div>
+      </details>
+
+      <details>
+        <summary>统计设置</summary>
+        <div style="margin-top:12px">
+          <label style="font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:8px">
+            <input type="checkbox" id="cfgExcludeBridge" style="width:16px;height:16px;flex:none;margin:0">
+            <span>排除虚拟网卡（docker / veth / br-）
+              <em style="font-style:normal;color:var(--tx3)">容器流量在 veth 和物理网卡上各计一次，不排除会翻倍</em></span>
+          </label>
+          <label style="font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:8px;margin-top:10px">
+            <input type="checkbox" id="cfgContainers" style="width:16px;height:16px;flex:none;margin:0">
+            <span>显示容器流量排行
+              <em style="font-style:normal;color:var(--tx3)">读 docker.sock，没有容器服务时自动隐藏</em></span>
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap">
+          <button class="sm primary" id="saveFlow">保存设置</button>
+          <button class="sm" id="exportFlow" style="margin-left:auto">导出 CSV</button>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ==================== 定时 ==================== -->
+  <section class="page" data-page="schedule">
+    <div class="card">
+      <h2>计划与状态 <span class="hint" id="powerHint">—</span></h2>
+
+      <div class="metrics" style="margin-bottom:16px">
+        <div class="metric">
+          <div class="lab">下次开机</div>
+          <div class="val" id="pNextOn" style="font-size:17px">—</div>
+          <div class="note" id="pNextOnNote">由「开机」计划决定</div>
+        </div>
+        <div class="metric">
+          <div class="lab">下次关机</div>
+          <div class="val" id="pNextOff" style="font-size:17px">—</div>
+          <div class="note" id="pNextOffNote">关机 / 重启</div>
+        </div>
+        <div class="metric">
+          <div class="lab">主板 RTC 闹钟</div>
+          <div class="val" id="pRtc" style="font-size:17px">—</div>
+          <div class="note" id="pRtcNote">实际生效的唤醒时间</div>
+        </div>
+        <div class="metric">
+          <div class="lab">调度器</div>
+          <div class="val" id="pSched" style="font-size:17px">—</div>
+          <div class="note" id="pSchedNote">后台线程</div>
+        </div>
+      </div>
+
+      <p class="only-narrow">← 表格较宽，可左右滑动查看完整列</p>
+      <div class="tbl-scroll tbl-wide">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:78px">操作</th>
+            <th style="width:130px">时间</th>
+            <th>星期</th>
+            <th style="width:140px">备注</th>
+            <th style="width:52px">启用</th>
+            <th style="width:64px"></th>
+          </tr>
+        </thead>
+        <tbody id="powerBody"></tbody>
+      </table>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="sm" id="addPlan">+ 新增计划</button>
+        <button class="sm" id="syncRtc">同步 RTC 闹钟</button>
+        <button class="sm primary" id="savePlan" style="margin-left:auto">保存计划</button>
+      </div>
+
+      <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:6px">
+        <div class="switch-row">
+          <div class="info">
+            <span class="t">定时开关机总开关</span>
+            <span class="d">关闭后不执行任何计划，并清除本应用写入的 RTC 唤醒闹钟</span>
+          </div>
+          <label class="sw"><input type="checkbox" id="swPower"><span class="track"></span></label>
+        </div>
+      </div>
+
+      <details>
+        <summary>RTC 闹钟与开机计划是什么关系</summary>
+        <p style="font-size:11.5px;color:var(--tx3);margin-top:8px;line-height:1.75">
+          主板 RTC 只有一个单次唤醒寄存器，存不下「周一三五 07:30」这种周期计划。本应用每轮巡检算出最近的一次开机时间写进去，
+          主板只负责到点执行 —— 所以要先有计划，RTC 才有内容可写。BIOS 里只需打开「RTC 唤醒」这一个开关，
+          别再在那里另设具体时刻，否则会跟应用抢同一个寄存器，一关机就被覆盖。
+          星期不勾选 = 每天；定时关机与某次开机撞在同一分钟时，以关机为准。「开机自启」必须打开，否则无人值守开机后调度器不运行。
+        </p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ==================== 推送 ==================== -->
+  <section class="page" data-page="notify">
+    <div class="card" id="pushCard">
+      <h2>消息推送 <span class="hint" id="pushHint">—</span></h2>
+
+      <a class="link" href="https://github.com/haihaipypy/autodocker" target="_blank" rel="noopener" style="margin-bottom:14px">
+        <span class="ic">AD</span>
+        <span class="tx">
+          <b>AutoDocker · 对接的另一半</b>
+          <span>地址与令牌在它的「设置 → 消息推送接口」里生成</span>
+        </span>
+        <span class="arw">↗</span>
+      </a>
+
+      <div style="margin-bottom:12px">
+        <label class="chip"><input type="checkbox" id="pushEnabled"><span>启用消息推送</span></label>
+      </div>
+
+      <div class="set-grid" style="margin-top:14px">
+        <label style="grid-column:span 2">AutoDocker 地址
+          <input type="text" id="pushBase" placeholder="http://192.168.2.10:8080">
+        </label>
+        <label>推送令牌
+          <input type="text" id="pushToken" placeholder="在 AutoDocker 设置页生成">
+        </label>
+      </div>
+
+      <div style="margin-top:16px">
+        <div class="sect-row">
+          <span class="sect">推送渠道</span>
+          <span class="sect-note">不勾选则交给 AutoDocker 广播给所有已就绪渠道</span>
+        </div>
+        <div class="chips" id="pushChannels"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="sm" id="pushTest">发送测试</button>
+        <span style="font-size:11px;color:var(--tx3)" id="pushTestMsg"></span>
+      </div>
+
+      <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--line)">
+        <div class="sect-row">
+          <span class="sect">定时推送</span>
+          <span class="sect-note">同一分钟只发一次，重启不补发</span>
+        </div>
+        <div id="pushSlots"></div>
+        <button class="sm" id="pushAddSlot" style="margin-top:10px">+ 添加时间点</button>
+      </div>
+
+      <details>
+        <summary>风扇转速告警</summary>
+        <div class="set-grid" style="align-items:end">
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--tx2);padding-bottom:8px">
+            <input type="checkbox" id="pushThrOn" style="width:16px;height:16px;flex:none;margin:0">
+            <span>转速达到阈值时推送</span>
+          </label>
+          <label>阈值（%）<input type="number" id="pushThrSpeed" min="1" max="100" step="1"></label>
+          <label>冷却（分钟）<input type="number" id="pushThrCool" min="1" max="1440" step="1"></label>
+        </div>
+        <p style="font-size:11px;color:var(--tx3);margin-top:12px;line-height:1.8">
+          <b>开机全速那一次不算</b> —— 那一段本来就是故意拉满的，报了只是噪音。冷却期内不重复发，
+          免得转速在阈值上下抖动时反复轰炸。
+        </p>
+      </details>
+
+      <div style="display:flex;gap:8px;margin-top:16px;align-items:center;flex-wrap:wrap">
+        <button class="sm primary" id="pushSave">保存推送设置</button>
+        <span id="pushLast" style="font-size:11px;color:var(--tx3);margin-left:auto"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>推过来长什么样</h2>
+      <div class="msg-demo">📊 FanControl 日报 · 11-15
+⚡ 功耗
+　　电量　0.487 kWh
+　　电费　¥0.26
+　　平均　40.7 W
+────────────────
+🌐 流量
+　　下行　839 MB
+　　上行　102 MB
+　　合计　942 MB
+────────────────
+⏰ 开关机计划
+　　开机　11-17 07:30
+　　关机　11-16 22:00
+────────────────
+🕘 12:00 自动汇总</div>
+    </div>
+  </section>
+
+  <!-- ==================== 系统 ==================== -->
+  <section class="page" data-page="system">
+    <div class="card">
+      <h2>运行开关</h2>
+      <div class="switch-row">
+        <div class="info">
+          <span class="t">开机自启</span>
+          <span class="d">注册 systemd 服务，重启后自动接管风扇与定时计划</span>
+        </div>
+        <label class="sw"><input type="checkbox" id="swAutostart"><span class="track"></span></label>
+      </div>
+      <div class="switch-row">
+        <div class="info">
+          <span class="t">访问密码</span>
+          <span class="d" id="pwState">—</span>
+        </div>
+        <button class="sm" id="pwBtn2">修改</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>运行日志
+        <span class="hint">
+          <label style="cursor:pointer;user-select:none">
+            <input type="checkbox" id="autoLog" checked style="vertical-align:-1px"> 自动刷新
+          </label>
+        </span>
+      </h2>
+      <div class="log" id="logBox"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="sm" id="logRefresh">刷新日志</button>
+        <button class="sm danger" id="logClear" style="margin-left:auto">清空日志</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>关于</h2>
+      <div class="about-line">
+        <span>版本 <b id="appVer">—</b></span>
+        <span>平台 <b>飞牛 fnOS</b></span>
+        <span>作者 <b>无辣</b></span>
+      </div>
+      <div class="links">
+        <a class="link" href="https://github.com/haihaipypy/FanControl" target="_blank" rel="noopener">
+          <span class="ic">FC</span>
+          <span class="tx">
+            <b>FanControl · 本项目</b>
+            <span>github.com/haihaipypy/FanControl</span>
+          </span>
+          <span class="arw">↗</span>
+        </a>
+        <a class="link" href="https://github.com/haihaipypy/autodocker" target="_blank" rel="noopener">
+          <span class="ic">AD</span>
+          <span class="tx">
+            <b>AutoDocker · 消息推送后端</b>
+            <span>github.com/haihaipypy/autodocker</span>
+          </span>
+          <span class="arw">↗</span>
+        </a>
+        <a class="link" href="https://blog.1day.vip" target="_blank" rel="noopener">
+          <span class="ic">WL</span>
+          <span class="tx">
+            <b>无辣的学习笔记</b>
+            <span>blog.1day.vip</span>
+          </span>
+          <span class="arw">↗</span>
+        </a>
+      </div>
+    </div>
+  </section>
 
   <div class="foot">风扇温控 · 飞牛 fnOS 应用 · by 无辣</div>
 </div>
@@ -461,9 +939,42 @@
   var TOKEN_KEY = "fancontrol_token";
   var token = localStorage.getItem(TOKEN_KEY) || "";
   var state = { config: null, statusTimer: null, logTimer: null, powerTimer: null,
-                dirty: false, planDirty: false };
+                energyTimer: null, dirty: false, planDirty: false, page: "overview" };
 
   var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------------- 页签路由 ----------------
+     用 hash 而不是 history API：桌面端是 iframe 内嵌，改 path 会让刷新 404；
+     hash 既能刷新保持当前页，也不打扰后端路由。 */
+  var PAGES = ["overview", "fan", "stats", "schedule", "notify", "system"];
+  // 老的 #/power、#/traffic 收藏夹还在，落到合并后的统计页，不要掉回概览
+  var PAGE_ALIAS = { power: "stats", traffic: "stats" };
+
+  function currentPage(){
+    var h = (location.hash || "").replace(/^#\/?/, "");
+    h = PAGE_ALIAS[h] || h;
+    return PAGES.indexOf(h) >= 0 ? h : "overview";
+  }
+
+  function showPage(name, opts){
+    if(PAGES.indexOf(name) < 0) name = "overview";
+    Array.prototype.forEach.call(document.querySelectorAll("#tabs a"), function(a){
+      a.className = (a.getAttribute("data-p") === name) ? "on" : "";
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".page"), function(sec){
+      if(sec.getAttribute("data-page") === name) sec.classList.add("on");
+      else sec.classList.remove("on");
+    });
+    state.page = name;
+    // 切页时按需拉一次：不必让每页的数据都跟着全局定时器空转
+    if(name === "stats"){ loadEnergy(); loadTraffic(); }
+    else if(name === "schedule") loadPower();
+    else if(name === "notify") loadNotify();
+    else if(name === "system") loadLog();
+    if(!opts || !opts.noScroll) window.scrollTo(0, 0);
+  }
+
+  window.addEventListener("hashchange", function(){ showPage(currentPage()); });
 
   function toast(msg, kind){
     var t = $("toast");
@@ -496,6 +1007,8 @@
   }
 
   function showLogin(){
+    // 任何弹出登录框的路径都先解除首屏封锁，否则会白屏 + 登录框
+    document.body.classList.remove("booting");
     $("mask").classList.remove("hide");
     setTimeout(function(){ $("pw").focus(); }, 60);
   }
@@ -526,10 +1039,12 @@
     if(state.statusTimer) clearInterval(state.statusTimer);
     if(state.logTimer) clearInterval(state.logTimer);
     if(state.powerTimer) clearInterval(state.powerTimer);
+    if(state.energyTimer) clearInterval(state.energyTimer);
     showLogin();
   };
 
   $("pwBtn").onclick = openPwDlg;
+  $("pwBtn2").onclick = openPwDlg;
 
   /* ---------------- 密码 ---------------- */
   var authEnabled = true;   // 由 /api/status 的 auth_enabled 同步
@@ -537,6 +1052,10 @@
   function applyAuthUI(){
     $("pwBtn").textContent = authEnabled ? "改密码" : "设密码";
     $("logoutBtn").style.display = authEnabled ? "" : "none";
+    var st = $("pwState");
+    if(st) st.textContent = authEnabled ? "打开页面需要输入密码" : "未设密码，同网段可直接打开";
+    var b2 = $("pwBtn2");
+    if(b2) b2.textContent = authEnabled ? "修改" : "设置";
   }
 
   function syncPwWarn(){
@@ -647,7 +1166,7 @@
     $("mHddNote").title = hs;
 
     $("mDaemon").textContent = s.daemon_running ? "运行中" : "已停止";
-    $("mDaemon").className = "val " + (s.daemon_running ? "c-green" : "c-red");
+    $("mDaemon").className = "val val-txt " + (s.daemon_running ? "c-green" : "c-red");
     $("mDaemonNote").textContent = s.temp_enabled ? "温控生效" : "温控已暂停";
 
     if(!state.dirty && sp !== null && sp !== undefined){
@@ -661,6 +1180,9 @@
     $("updateHint").textContent = when
       ? ("更新于 " + when.toLocaleTimeString("zh-CN"))
       : "";
+
+    var ver = $("appVer");
+    if(ver && s.version) ver.textContent = "v" + s.version;
   }
 
   function loadStatus(){
@@ -765,6 +1287,38 @@
     $("cfgBoostSec").value = bb.seconds === undefined ? 60 : bb.seconds;
     syncBoostUI();
     $("swEnabled").checked = !!cfg.enabled;
+
+    // 流量与功耗统计
+    var mm = cfg.metrics || {};
+    var mp = mm.power || {};
+    var mt = mm.traffic || {};
+    $("swMetrics").checked = mm.enabled === undefined ? true : !!mm.enabled;
+    $("metricsHint").textContent = "每 " + (mm.interval === undefined ? 30 : mm.interval) + " 秒采样一次";
+    $("cfgRate").value = mp.rate_yuan === undefined ? 0.6 : mp.rate_yuan;
+    $("cfgDiskW").value = mp.disk_typical_w === undefined ? 8 : mp.disk_typical_w;
+    $("cfgBaseW").value = mp.base_w === undefined ? 8 : mp.base_w;
+    $("cfgTdp").value = mp.tdp_w === undefined ? 65 : mp.tdp_w;
+    $("cfgNicW").value = mp.nic_fixed_w === undefined ? 5 : mp.nic_fixed_w;
+    $("cfgSrc").value = mp.source || "auto";
+    var mu = mp.ups || {};
+    $("cfgUpsHost").value = mu.host || "";
+    $("cfgUpsPort").value = mu.port || "";
+    $("cfgUpsName").value = mu.name || "";
+    $("cfgExcludeBridge").checked = mt.exclude_bridge === undefined ? true : !!mt.exclude_bridge;
+    $("cfgContainers").checked = mt.containers === undefined ? true : !!mt.containers;
+    renderPeriods(mp.price_periods || []);
+
+    // 消息推送
+    var nn = cfg.notify || {};
+    var nt = nn.threshold || {};
+    $("pushEnabled").checked = !!nn.enabled;
+    $("pushBase").value = nn.base_url || "";
+    $("pushToken").value = nn.token || "";
+    renderPushChannels(nn.channels || []);
+    renderPushSlots(nn.schedule || []);
+    $("pushThrOn").checked = !!nt.enabled;
+    $("pushThrSpeed").value = nt.speed === undefined ? 80 : nt.speed;
+    $("pushThrCool").value = nt.cooldown_min === undefined ? 30 : nt.cooldown_min;
   }
 
   function syncBoostUI(){
@@ -962,6 +1516,17 @@
     $("powerHint").textContent = ev
       ? ("最近：" + fmtTs(ev.ts) + " " + (ev.label || "") + (ev.text ? "（" + ev.text + "）" : ""))
       : "暂无执行记录";
+
+    // 概览页的「下次开关机」跟着同一份数据走，省一次请求
+    var ovOff = $("ovOff"), ovOn = $("ovOn");
+    if(ovOff){
+      ovOff.textContent = d.next_off ? fmtTs(d.next_off) : "未安排";
+      ovOff.className = "v " + (d.next_off ? "" : "c-tx3");
+      $("ovOffNote").textContent = p.enabled ? "计划执行时间" : "总开关已关闭";
+      ovOn.textContent = d.next_on ? fmtTs(d.next_on) : "未安排";
+      ovOn.className = "v " + (d.next_on ? "" : "c-tx3");
+      $("ovOnNote").textContent = p.enabled ? "主板 RTC 唤醒" : "总开关已关闭";
+    }
   }
 
   function loadPower(){
@@ -1070,35 +1635,528 @@
     }).catch(function(e){ toast(e.message, "err"); });
   };
   $("autoLog").onchange = function(){
-    if(state.logTimer){ clearInterval(state.logTimer); state.logTimer = null; }
-    if(this.checked) state.logTimer = setInterval(loadLog, 5000);
+    // 定时器常驻、内部判当前页，这里只负责勾上时立刻补一次
+    if(this.checked && state.page === "system") loadLog();
   };
 
   $("refreshBtn").onclick = function(){
-    loadStatus(); loadConfig(); loadAutostart(); loadPower(); loadLog();
+    loadStatus(); loadConfig(); loadAutostart();
+    loadPower(); loadNotify();
+    if(state.page === "system") loadLog();
+    loadEnergy(); loadTraffic();
     toast("已刷新");
+  };
+
+  /* ---------------- 流量与功耗统计 ---------------- */
+  function fmtBytes(n){
+    if(n === null || n === undefined || !isFinite(n)) return "—";
+    n = Number(n);
+    var u = ["B", "KB", "MB", "GB", "TB"], i = 0;
+    while(n >= 1024 && i < u.length - 1){ n /= 1024; i++; }
+    return (i === 0 ? n.toFixed(0) : n.toFixed(2)) + " " + u[i];
+  }
+  function fmtRate(n){ return (n === null || n === undefined) ? "—" : fmtBytes(n) + "/s"; }
+  function fmtMoney(n){ return "¥" + (isFinite(n) ? Number(n).toFixed(2) : "0.00"); }
+  function fmtKwh(n){
+    if(n === null || n === undefined) return "—";
+    return Number(n).toFixed(Number(n) < 1 ? 3 : 2);
+  }
+  // 距上次采样多久 —— 用来区分「还没采过」和「采着采着停了」
+  function ageText(sec){
+    if(sec === null || sec === undefined || !isFinite(sec)) return "";
+    sec = Math.max(0, Math.round(Number(sec)));
+    if(sec < 90) return "（" + sec + " 秒前）";
+    if(sec < 5400) return "（" + Math.round(sec / 60) + " 分钟前）";
+    if(sec < 172800) return "（" + Math.round(sec / 3600) + " 小时前）";
+    return "（" + Math.round(sec / 86400) + " 天前）";
+  }
+
+  // 纯 CSS 柱状图：值 → 高度百分比，title 里带日期与数值（悬停可见）
+  function renderBars(el, items, tip){
+    if(!el) return;
+    var max = 0, any = false;
+    (items || []).forEach(function(it){
+      if(it.v != null && it.v > 0){ any = true; if(it.v > max) max = it.v; }
+    });
+    // 一天数据都没有时就别画一排 2px 的残桩，整块连同坐标轴一起收掉（CSS 的 :empty 接这个）
+    if(!any){ el.innerHTML = ""; return; }
+    var out = [];
+    (items || []).forEach(function(it){
+      var has = it.v != null && it.v > 0;
+      var h = has ? Math.max(3, Math.round(it.v / max * 100)) : 2;
+      var t = tip ? String(tip(it)).replace(/"/g, "") : "";
+      out.push('<div class="bar' + (has ? "" : " empty") + '" style="height:' + h + '%" title="' + t + '"></div>');
+    });
+    el.innerHTML = out.join("");
+  }
+
+  function loadEnergy(){
+    return api("/api/energy?days=30").then(renderEnergy).catch(function(e){
+      $("energyHint").textContent = "读取失败：" + e.message;
+    });
+  }
+
+  function renderEnergy(d){
+    if(!d) return;
+    var off = d.enabled === false;
+    // state 由后端判定：off / waiting（从没采过）/ stale（采过但停了）/ ok
+    var st = d.state || (d.live ? "ok" : "waiting");
+    var good = (st === "ok");
+    var hint;
+    if(off) hint = "采集总开关已关闭";
+    else if(st === "waiting") hint = "等待首次采样";
+    else if(st === "stale") hint = "采样已停止" + ageText(d.age);
+    else if(st === "unknown") hint = "读数异常";
+    else hint = "每 " + (d.interval || 30) + " 秒采样";
+    $("energyHint").textContent = hint;
+
+    if(off || !good){
+      $("mPower").innerHTML = "--<small>W</small>";
+      var upsErr = (d.ups && d.ups.error) || "";
+      $("mPowerNote").textContent = off ? "统计已关闭"
+        : (st === "waiting" ? "等守护进程首次采样"
+        : (st === "stale" ? "采样已停止，检查守护进程是否在运行"
+        : (upsErr ? ("UPS 读不到：" + upsErr) : "暂无读数")));
+      $("energySrc").textContent = off ? "已关闭"
+        : (st === "stale" ? "已暂停" : (upsErr ? "UPS 无读数" : "未采集"));
+      $("energySrc").className = "tag off";
+    } else {
+      $("mPower").innerHTML = (d.power_w || 0) + "<small>W</small>";
+      var dt = d.detail || {};
+      if(d.source === "ups"){
+        var bits = ["UPS 实测"];
+        if(dt.ups_load != null) bits.push("负载 " + dt.ups_load + "%");
+        if(dt.ups_status) bits.push(dt.ups_status);
+        if(dt.ups_model) bits.push(String(dt.ups_model).slice(0, 22));
+        $("mPowerNote").textContent = bits.join(" · ");
+        $("energySrc").textContent = "UPS 实测";
+        $("energySrc").className = "tag ok";
+      } else if(d.source === "rapl"){
+        $("mPowerNote").textContent = "CPU " + (dt.cpu_w || 0) + "W（封装 " + (dt.package_w || 0)
+          + " + 内存 " + (dt.dram_w || 0) + "）· 底座 " + (dt.base_w || 0) + "W · 硬盘 " + (dt.disks_w || 0) + "W";
+        $("energySrc").textContent = "RAPL 实测";
+        $("energySrc").className = "tag";
+      } else {
+        $("mPowerNote").textContent = "CPU " + (dt.cpu_percent == null ? "—" : dt.cpu_percent + "%")
+          + " · " + (dt.disks || 0) + " 块盘 · 估算值";
+        $("energySrc").textContent = "模型估算";
+        $("energySrc").className = "tag warn";
+      }
+    }
+
+    var t = d.today || {}, mo = d.month || {};
+    $("mKwhToday").innerHTML = fmtKwh(t.kwh) + "<small>kWh</small>";
+    $("mCostToday").textContent = fmtMoney(t.cost) + (t.avg_w ? " · 平均 " + t.avg_w + "W" : "");
+    $("mKwhMonth").innerHTML = fmtKwh(mo.kwh) + "<small>kWh</small>";
+    $("mCostMonth").textContent = fmtMoney(mo.cost) + (mo.avg_w ? " · 平均 " + mo.avg_w + "W" : "");
+
+    var days = d.days || [];
+    renderBars($("energyBars"),
+      days.map(function(x){ return { v: x.kwh, day: x.day, cost: x.cost }; }),
+      function(it){ return it.v == null ? it.day + " 无数据" : it.day + "  " + it.v + " kWh · " + fmtMoney(it.cost); });
+    if(days.length){
+      $("energyAxisL").textContent = days[0].day;
+      $("energyAxisR").textContent = days[days.length - 1].day;
+    }
+
+    var ovK = $("ovKwh");
+    if(ovK){
+      var td = d.today || {};
+      ovK.textContent = off ? "已关闭" : (fmtKwh(td.kwh) + " kWh");
+      ovK.className = "v " + (off ? "c-tx3" : "c-amber");
+      $("ovCost").textContent = off ? "在「功耗」页开启采集"
+        : (fmtMoney(td.cost) + (td.avg_w ? " · 平均 " + td.avg_w + "W" : ""));
+    }
+  }
+
+  function loadTraffic(){
+    return api("/api/traffic?days=30").then(renderTraffic).catch(function(e){
+      $("flowHint").textContent = "读取失败：" + e.message;
+    });
+  }
+
+  function renderTraffic(d){
+    if(!d) return;
+    var off = d.enabled === false;
+    var nIf = (d.ifaces || []).length;
+    var live = d.live !== false && nIf > 0;
+    var st = d.state || (live ? "ok" : "waiting");
+    var rt = d.realtime || {}, tt = d.totals || {};
+    var hint;
+    if(off) hint = "采集总开关已关闭";
+    else if(st === "waiting") hint = "等待首次采样";
+    else if(st === "stale") hint = "采样已停止" + ageText(d.age);
+    else hint = nIf + " 个网口";
+    $("flowHint").textContent = hint;
+
+    // 实时速率依赖采样进程的计数器差值，读不到就老实显示「—」，别拿 0 冒充
+    $("mNetRate").textContent = live ? fmtRate(rt.rx_bps) : "—";
+    $("mNetRateNote").textContent = live ? ("↑ " + fmtRate(rt.tx_bps))
+      : (st === "stale" ? "采样已停止" : "无实时读数");
+    $("mNetToday").textContent = fmtBytes(tt.today_rx);
+    $("mNetTodayNote").textContent = "↑ " + fmtBytes(tt.today_tx)
+      + (tt.today_cover_h ? " · 覆盖 " + tt.today_cover_h + "h" : "");
+    $("mNetMonth").textContent = fmtBytes(tt.month_rx);
+    $("mNetMonthNote").textContent = "↑ " + fmtBytes(tt.month_tx);
+    // 开机累计读的是内核计数器，跟采样进程在不在没关系，只要有网口就显示
+    $("mNetBoot").textContent = nIf ? fmtBytes(tt.boot_rx) : "—";
+    $("mNetBootNote").textContent = nIf ? ("↑ " + fmtBytes(tt.boot_tx)) : "未读到网卡";
+
+    var rows = (d.ifaces || []).map(function(i){
+      var mark = i.counted ? "" : ' <span class="tag off">不计入</span>';
+      return "<tr><td>" + i.name + mark + "</td><td>" + fmtRate(i.rx_bps) + "</td><td>"
+        + fmtRate(i.tx_bps) + "</td><td>" + fmtBytes(i.rx_total + i.tx_total) + "</td></tr>";
+    });
+    $("ifaceBody").innerHTML = rows.length ? rows.join("")
+      : '<tr class="empty-row"><td colspan="4">没有可用网口</td></tr>';
+
+    var cs = d.containers || [];
+    if(!d.container_supported){
+      $("ctrWrap").innerHTML = '<p style="font-size:12px;color:var(--tx3)">未检测到 docker.sock，容器排行不可用。</p>';
+    } else if(!cs.length){
+      $("ctrWrap").innerHTML = '<p style="font-size:12px;color:var(--tx3)">没有运行中的容器。</p>';
+    } else {
+      var out = ['<div style="font-size:12px;color:var(--tx2);margin-bottom:8px">容器流量排行（本次运行累计）</div>',
+                 '<div class="tbl-scroll"><table><thead><tr><th>容器</th><th>下行</th><th>上行</th><th>合计</th></tr></thead><tbody>'];
+      cs.forEach(function(c){
+        out.push("<tr><td>" + c.name + "</td><td>" + fmtBytes(c.rx) + "</td><td>"
+          + fmtBytes(c.tx) + "</td><td>" + fmtBytes(c.total) + "</td></tr>");
+      });
+      out.push("</tbody></table></div>");
+      $("ctrWrap").innerHTML = out.join("");
+    }
+
+    var days = d.days || [];
+    renderBars($("flowBars"),
+      days.map(function(x){ return { v: x.rx, day: x.day, tx: x.tx }; }),
+      function(it){
+        return it.v == null ? it.day + " 无数据"
+          : it.day + "  ↓" + fmtBytes(it.v) + "  ↑" + fmtBytes(it.tx);
+      });
+    if(days.length){
+      $("flowAxisL").textContent = days[0].day;
+      $("flowAxisR").textContent = days[days.length - 1].day;
+    }
+
+    var ovN = $("ovNet");
+    if(ovN){
+      ovN.textContent = off ? "已关闭" : fmtBytes(tt.today_rx);
+      ovN.className = "v " + (off ? "c-tx3" : "c-blue");
+      $("ovNetNote").textContent = off ? "在「流量」页开启采集"
+        : ("↑ " + fmtBytes(tt.today_tx) + " · 本月 " + fmtBytes(tt.month_rx));
+    }
+  }
+
+  /* ---------------- 分时电价编辑 ---------------- */
+  function makePeriodRow(p){
+    var row = document.createElement("div");
+    row.className = "period-row";
+    row.innerHTML =
+      '<input type="time" value="' + ((p && p.start) || "08:00") + '">' +
+      '<input type="time" value="' + ((p && p.end) || "22:00") + '">' +
+      '<input type="number" step="0.01" min="0" max="20" placeholder="电价" value="'
+        + (p && p.rate != null ? p.rate : "") + '">' +
+      '<button class="sm danger del">删</button>';
+    row.querySelector(".del").onclick = function(){ row.parentNode.removeChild(row); };
+    return row;
+  }
+
+  function renderPeriods(list){
+    var box = $("periodList");
+    if(!box) return;
+    box.innerHTML = "";
+    (list || []).forEach(function(p){ box.appendChild(makePeriodRow(p)); });
+  }
+
+  function collectPeriods(){
+    var out = [];
+    Array.prototype.slice.call($("periodList").children).forEach(function(row){
+      var ins = row.querySelectorAll("input");
+      var s = ins[0].value, e = ins[1].value, r = parseFloat(ins[2].value);
+      if(!s || !e || !isFinite(r)) return;
+      out.push({ start: s, end: e, rate: r });
+    });
+    return out;
+  }
+
+  $("addPeriod").onclick = function(){
+    if($("periodList").children.length >= 12){ toast("最多 12 段", "err"); return; }
+    $("periodList").appendChild(makePeriodRow(null));
+  };
+
+  /* ---------------- 统计的保存与导出 ---------------- */
+  $("saveEnergy").onclick = function(){
+    var cfg = Object.assign({}, state.config);
+    var mm = Object.assign({}, cfg.metrics || {});
+    mm.power = {
+      rate_yuan: parseFloat($("cfgRate").value) || 0,
+      price_periods: collectPeriods(),
+      tdp_w: parseFloat($("cfgTdp").value) || 65,
+      disk_typical_w: parseFloat($("cfgDiskW").value) || 0,
+      nic_fixed_w: parseFloat($("cfgNicW").value) || 0,
+      base_w: parseFloat($("cfgBaseW").value) || 0,
+      source: $("cfgSrc").value || "auto",
+      ups: {
+        host: $("cfgUpsHost").value.trim(),
+        port: parseInt($("cfgUpsPort").value, 10) || 0,
+        name: $("cfgUpsName").value.trim()
+      }
+    };
+    cfg.metrics = mm;
+    pushConfig(cfg).then(function(){ toast("电费参数已保存", "ok"); loadEnergy(); })
+      .catch(function(e){ toast(e.message, "err"); });
+  };
+
+  // 读一次 UPS：确认地址对不对、功率取的是哪个变量
+  $("upsProbe").onclick = function(){
+    var self = this;
+    self.disabled = true;
+    $("upsResult").style.color = "var(--tx3)";
+    $("upsResult").textContent = "检测中…";
+    api("/api/ups").then(function(d){
+      var p = (d && d.power) || {};
+      var bits = ["实例 " + ((d && d.name) || "—"),
+                  ((d && d.host) || "?") + ":" + ((d && d.port) || 0)];
+      if(p.w) bits.push("功率 " + p.w + "W（来自 " + (p.from || "?") + "）");
+      else bits.push("没有可用的功率变量");
+      if(p.load != null) bits.push("负载 " + p.load + "%");
+      if(p.status) bits.push(p.status);
+      if(p.model) bits.push(p.model);
+      $("upsResult").style.color = "var(--green)";
+      $("upsResult").textContent = bits.join(" · ");
+    }).catch(function(e){
+      $("upsResult").style.color = "var(--red)";
+      $("upsResult").textContent = "读不到：" + e.message;
+    }).then(function(){ self.disabled = false; });
+  };
+
+  $("saveFlow").onclick = function(){
+    var cfg = Object.assign({}, state.config);
+    var mm = Object.assign({}, cfg.metrics || {});
+    mm.traffic = {
+      exclude_bridge: $("cfgExcludeBridge").checked,
+      containers: $("cfgContainers").checked
+    };
+    cfg.metrics = mm;
+    pushConfig(cfg).then(function(){ toast("流量设置已保存", "ok"); loadTraffic(); })
+      .catch(function(e){ toast(e.message, "err"); });
+  };
+
+  // 功耗与流量合并成一页后共用一个开关，对应配置里的 metrics.enabled
+  function setMetricsSw(on){
+    var el = $("swMetrics");
+    if(el) el.checked = on;
+  }
+
+  function onMetricsToggle(){
+    var on = this.checked;
+    var cfg = Object.assign({}, state.config);
+    var mm = Object.assign({}, cfg.metrics || {});
+    mm.enabled = on;
+    cfg.metrics = mm;
+    pushConfig(cfg).then(function(){
+      setMetricsSw(on);
+      toast(on ? "统计已开启" : "统计已关闭，已有数据保留", "ok");
+      loadEnergy(); loadTraffic();
+    }).catch(function(e){
+      setMetricsSw(!on);
+      toast(e.message, "err");
+    });
+  }
+  $("swMetrics").onchange = onMetricsToggle;
+
+  function exportCsv(path){
+    var url = path + (token ? ("?token=" + encodeURIComponent(token)) : "");
+    window.open(url, "_blank");
+  }
+  $("exportEnergy").onclick = function(){ exportCsv("/api/export/energy.csv"); };
+  $("exportFlow").onclick = function(){ exportCsv("/api/export/traffic.csv"); };
+
+  /* ---------------- 消息推送（AutoDocker /api/push） ---------------- */
+  var PUSH_CH = [["feishu", "飞书"], ["telegram", "Telegram"],
+                 ["dingtalk", "钉钉"], ["wecom", "企业微信"]];
+
+  function renderPushChannels(list){
+    var box = $("pushChannels");
+    if(!box) return;
+    var set = {};
+    (list || []).forEach(function(x){ set[x] = 1; });
+    box.innerHTML = "";
+    PUSH_CH.forEach(function(it){
+      var lab = document.createElement("label");
+      lab.className = "chip";
+      lab.innerHTML = '<input type="checkbox" data-ch="' + it[0] + '"><span>' + it[1] + "</span>";
+      lab.querySelector("input").checked = !!set[it[0]];
+      box.appendChild(lab);
+    });
+  }
+
+  function collectPushChannels(){
+    var out = [];
+    Array.prototype.slice.call($("pushChannels").querySelectorAll("input")).forEach(function(i){
+      if(i.checked) out.push(i.getAttribute("data-ch"));
+    });
+    return out;
+  }
+
+  function makeSlotRow(item){
+    var row = document.createElement("div");
+    row.className = "push-row";
+    row.innerHTML =
+      '<input type="time" value="' + ((item && item.time) || "09:00") + '">' +
+      '<div class="chk">' +
+        '<label><input type="checkbox" data-k="power">功耗</label>' +
+        '<label><input type="checkbox" data-k="traffic">流量</label>' +
+        '<label><input type="checkbox" data-k="plan">开关机计划</label>' +
+      "</div>" +
+      '<button class="sm danger del">删</button>';
+    ["power", "traffic", "plan"].forEach(function(k){
+      row.querySelector('[data-k="' + k + '"]').checked =
+        item ? !!item[k] : (k === "power");
+    });
+    row.querySelector(".del").onclick = function(){ row.parentNode.removeChild(row); };
+    return row;
+  }
+
+  function renderPushSlots(list){
+    var box = $("pushSlots");
+    if(!box) return;
+    box.innerHTML = "";
+    (list || []).forEach(function(it){ box.appendChild(makeSlotRow(it)); });
+  }
+
+  function collectPushSlots(){
+    var out = [];
+    Array.prototype.slice.call($("pushSlots").children).forEach(function(row){
+      var t = row.querySelector('input[type="time"]').value;
+      if(!/^\d{2}:\d{2}$/.test(t)) return;
+      var o = { time: t };
+      ["power", "traffic", "plan"].forEach(function(k){
+        o[k] = row.querySelector('[data-k="' + k + '"]').checked;
+      });
+      if(o.power || o.traffic || o.plan) out.push(o);
+    });
+    return out;
+  }
+
+  function loadNotify(){
+    return api("/api/notify").then(renderNotify).catch(function(e){
+      $("pushHint").textContent = "读取失败：" + e.message;
+    });
+  }
+
+  function renderNotify(d){
+    if(!d) return;
+    $("pushHint").textContent = d.enabled ? (d.configured ? "已配置" : "待填地址与令牌") : "已关闭";
+    var last = d.last || {};
+    if(last.ts){
+      $("pushLast").textContent = "上次推送 " + fmtTs(last.ts)
+        + " · " + (last.kind === "threshold" ? "转速告警" : "定时汇总")
+        + (last.ok ? " · 成功" : " · 失败：" + (last.error || "未知原因"));
+      $("pushLast").style.color = last.ok ? "var(--tx3)" : "var(--red)";
+    } else {
+      $("pushLast").textContent = "还没有推送记录";
+      $("pushLast").style.color = "var(--tx3)";
+    }
+  }
+
+  function buildNotifyCfg(){
+    var cfg = Object.assign({}, state.config);
+    cfg.notify = {
+      enabled: $("pushEnabled").checked,
+      base_url: $("pushBase").value.trim(),
+      token: $("pushToken").value.trim(),
+      channels: collectPushChannels(),
+      schedule: collectPushSlots(),
+      threshold: {
+        enabled: $("pushThrOn").checked,
+        speed: parseInt($("pushThrSpeed").value, 10) || 80,
+        cooldown_min: parseInt($("pushThrCool").value, 10) || 30
+      }
+    };
+    return cfg;
+  }
+
+  $("pushSave").onclick = function(){
+    pushConfig(buildNotifyCfg()).then(function(){
+      toast("推送设置已保存", "ok");
+      loadNotify();
+    }).catch(function(e){ toast(e.message, "err"); });
+  };
+
+  $("pushAddSlot").onclick = function(){
+    $("pushSlots").appendChild(makeSlotRow(null));
+  };
+
+  $("pushTest").onclick = function(){
+    var btn = this;
+    btn.disabled = true;
+    $("pushTestMsg").textContent = "发送中…";
+    api("/api/notify/test", { method: "POST", body: {
+      base_url: $("pushBase").value.trim(),
+      token: $("pushToken").value.trim(),
+      channels: collectPushChannels()
+    }}).then(function(r){
+      var okCh = (r.sent || []).filter(function(x){ return x.ok; })
+        .map(function(x){ return x.channel; });
+      $("pushTestMsg").textContent = okCh.length
+        ? ("已送达：" + okCh.join("、")) : "接口返回成功但没有任何渠道回执";
+      toast("测试消息已发出", "ok");
+      loadNotify();
+    }).catch(function(e){
+      $("pushTestMsg").textContent = e.message;
+      toast(e.message, "err");
+    }).then(function(){ btn.disabled = false; });
   };
 
   /* ---------------- 启动 ---------------- */
   function boot(){
+    showPage(currentPage(), { noScroll: true });
     loadStatus();
     loadConfig();
     loadAutostart();
-    loadPower();
+    loadPower();        // 概览要「下次开关机」
     loadLog();
+    loadEnergy();       // 概览要今日用电
+    loadTraffic();      // 概览要今日流量
+    loadNotify();
+
     if(state.statusTimer) clearInterval(state.statusTimer);
     state.statusTimer = setInterval(loadStatus, 3000);
+
+    // 下面三个定时器常驻但按当前页收敛：切到哪页才拉哪页，
+    // 不开着的页面不该每 10 秒去敲一次后端。
     if(state.logTimer) clearInterval(state.logTimer);
-    if($("autoLog").checked) state.logTimer = setInterval(loadLog, 5000);
+    state.logTimer = setInterval(function(){
+      if(state.page === "system" && $("autoLog").checked) loadLog();
+    }, 5000);
+
     if(state.powerTimer) clearInterval(state.powerTimer);
-    state.powerTimer = setInterval(loadPower, 60000);
+    state.powerTimer = setInterval(function(){
+      if(state.page === "schedule") loadPower();
+    }, 60000);
+
+    // 统计变化慢，10 秒刷一次足够；实时功耗本身也是 30 秒才采一次
+    if(state.energyTimer) clearInterval(state.energyTimer);
+    state.energyTimer = setInterval(function(){
+      if(state.page === "overview" || state.page === "stats"){ loadEnergy(); loadTraffic(); }
+    }, 10000);
   }
 
   paintRange($("speedRange"));
 
   // 不管有没有 token 都先探一次：没设密码时后端直接放行，免登录
-  api("/api/status").then(function(s){ hideLogin(); renderStatus(s); boot(); })
-    .catch(function(){ token = ""; localStorage.removeItem(TOKEN_KEY); showLogin(); });
+  api("/api/status").then(function(s){
+      document.body.classList.remove("booting");
+      hideLogin(); renderStatus(s); boot();
+    })
+    .catch(function(){
+      token = ""; localStorage.removeItem(TOKEN_KEY); showLogin();
+    });
+
+  // 兜底：接口 8 秒还没回（服务没起来 / 网络卡住）就别一直白屏，
+  // 把正文放出来，后续轮询会自己补上数据
+  setTimeout(function(){ document.body.classList.remove("booting"); }, 8000);
 })();
 </script>
 </body>

@@ -16,6 +16,9 @@ done
 pkill -f "$APP_DIR/server.py" 2>/dev/null
 pkill -f "$APP_DIR/fand.py" 2>/dev/null
 
+# 密码备份不跨卸载保留 —— 重装应该回到安装向导，而不是复活上次的密码
+rm -f "$PKG_VAR/auth.backup.json" 2>/dev/null
+
 # 关闭并移除 systemd 自启服务
 if command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now fan-control.service 2>/dev/null

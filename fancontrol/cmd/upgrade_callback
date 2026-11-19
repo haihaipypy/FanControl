@@ -3,6 +3,15 @@
 set -u
 
 APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
+PKG_ETC="${TRIM_PKGETC:-/var/apps/FanControl/etc}"
+PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+
+# 升级过程中 @appconf 被整体替换的话，auth.json 会跟着丢，
+# 服务启动时就只剩「种回默认密码」这一条路 —— 用升级前的备份补回来。
+if [ ! -f "$PKG_ETC/auth.json" ] && [ -f "$PKG_VAR/auth.backup.json" ]; then
+  mkdir -p "$PKG_ETC" 2>/dev/null
+  cp -f "$PKG_VAR/auth.backup.json" "$PKG_ETC/auth.json" 2>/dev/null
+fi
 
 chmod +x "$APP_DIR/bin/fanctrl" 2>/dev/null
 chmod +x "$APP_DIR/fand.py" 2>/dev/null

@@ -4,6 +4,14 @@ set -u
 
 APP_DIR="${TRIM_APPDEST:-/var/apps/FanControl/target}"
 PKG_VAR="${TRIM_PKGVAR:-/var/apps/FanControl/var}"
+PKG_ETC="${TRIM_PKGETC:-/var/apps/FanControl/etc}"
+
+# 覆盖安装在部分系统上会整体替换 @appconf，先用 @appvar 存一份密码设置。
+# install_callback 里会优先保留已有 auth.json，这里是它被清空时的兜底。
+mkdir -p "$PKG_VAR" 2>/dev/null
+if [ -f "$PKG_ETC/auth.json" ]; then
+  cp -f "$PKG_ETC/auth.json" "$PKG_VAR/auth.backup.json" 2>/dev/null
+fi
 
 # 停掉本应用残留（升级场景）
 if [ -d "$PKG_VAR" ]; then

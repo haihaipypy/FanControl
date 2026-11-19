@@ -31,16 +31,34 @@ if [ "${wizard_cleanup_old:-true}" = "true" ]; then
   pkill -f "fan_control.sh" 2>/dev/null
 fi
 
-# ---- 2. 按向导写入访问密码（留空 = 不设密码）----
+# ---- 2. 访问密码：只在「确实没有设置」时才用向导值 ----
+# 覆盖安装 / 更新同样会走这里，无条件按向导重写会把用户在页面上改过的密码
+# （尤其是「取消密码」）冲回向导里的值，所以必须先判断已有设置。
 PY=""
 for p in /usr/bin/python3 /usr/local/bin/python3 "$(command -v python3 2>/dev/null)"; do
   [ -n "$p" ] && [ -x "$p" ] && PY="$p" && break
 done
 if [ -n "$PY" ]; then
-  FAN_PKGETC="$PKG_ETC" WIZ_PW="${wizard_password:-}" "$PY" - <<'PYEOF'
-import os, hashlib, secrets, json
+  FAN_PKGETC="$PKG_ETC" FAN_PKGVAR="$PKG_VAR" WIZ_PW="${wizard_password:-}" "$PY" - <<'PYEOF'
+import os, hashlib, secrets, json, shutil
+
+etc = os.environ.get("FAN_PKGETC", ".")
+var = os.environ.get("FAN_PKGVAR", ".")
+path = os.path.join(etc, "auth.json")
+backup = os.path.join(var, "auth.backup.json")
+
+if os.path.isfile(path):
+    # 已有设置（来自上一版应用或上一次安装）—— 一律保留，绝不覆盖
+    print("检测到已有访问密码设置，保留不动")
+    raise SystemExit(0)
+
+if os.path.isfile(backup):
+    shutil.copyfile(backup, path)
+    print("访问密码设置已从备份恢复")
+    raise SystemExit(0)
+
+os.makedirs(etc, exist_ok=True)
 pwd = (os.environ.get("WIZ_PW") or "").strip()
-path = os.path.join(os.environ.get("FAN_PKGETC", "."), "auth.json")
 if pwd:
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", pwd.encode(), salt.encode(), 120000).hex()
